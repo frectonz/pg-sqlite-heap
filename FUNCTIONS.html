@@ -215,10 +215,11 @@
   .box p:last-child { margin-bottom: 2px; }
 
   table.data {
-    border-collapse: collapse; width: 100%; margin: 16px 0;
+    border-collapse: collapse; width: 100%;
     font-size: 13px; border: 1px solid var(--hair);
-    display: block; overflow-x: auto; max-width: 100%;
   }
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  .tablewrap table.data { margin: 0; }
   table.data th {
     text-align: left; padding: 5px 10px; font-size: 12px; font-weight: 700;
     border-bottom: 1px solid var(--line);
@@ -336,6 +337,7 @@ fetch, insert, vacuum, and plan.</p>
 <code>::regclass</code>, e.g. <code>sqlite_heap_storage('demo'::regclass)</code>. For <em>how</em>
 the engine works underneath, see the <a href="EXPLAINER.html">Engineering Reference</a>.</p>
 
+<div class="tablewrap">
 <table class="data">
 <tr><th>Function</th><th>Returns</th><th>Group</th></tr>
 <tr><td><code>sqlite_heap_physical_rows(oid)</code></td><td><code>bigint</code></td><td>Inspection</td></tr>
@@ -349,6 +351,7 @@ the engine works underneath, see the <a href="EXPLAINER.html">Engineering Refere
 <tr><td><code>sqlite_heap_handler(internal)</code></td><td><code>table_am_handler</code></td><td>Registration</td></tr>
 <tr><td><code>sqlite_heap_drop_handler()</code></td><td><code>event_trigger</code></td><td>Registration</td></tr>
 </table>
+</div>
 
 <!-- ============================= INSPECTION ========================= -->
 <div class="seclabel" id="inspection"><span class="no">01</span> Inspection functions</div>

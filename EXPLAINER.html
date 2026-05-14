@@ -194,10 +194,11 @@
 
   /* ---- tables ------------------------------------------------------- */
   table.data {
-    border-collapse: collapse; width: 100%; margin: 16px 0;
+    border-collapse: collapse; width: 100%;
     font-size: 13px; border: 1px solid var(--hair);
-    display: block; overflow-x: auto; max-width: 100%;
   }
+  .tablewrap { overflow-x: auto; margin: 16px 0; }
+  .tablewrap table.data { margin: 0; }
   table.data th {
     text-align: left; padding: 5px 10px; font-size: 12px; font-weight: 700;
     border-bottom: 1px solid var(--line);
@@ -450,6 +451,7 @@ Postgres's on-disk format. Everything else is the MVCC header.</p>
 
 <div class="box">
   <span class="label">Inspection function reference</span>
+<div class="tablewrap">
   <table class="data" style="margin:8px 0 2px;">
   <tr><th>Function</th><th>Returns</th><th>Shows</th></tr>
   <tr><td><code>sqlite_heap_file_path(regclass)</code></td><td><code>text</code></td>
@@ -469,6 +471,7 @@ Postgres's on-disk format. Everything else is the MVCC header.</p>
   <tr><td><code>sqlite_heap_live_rows(regclass)</code></td><td><code>bigint</code></td>
       <td>row count of live (<code>xmax = 0</code>) versions</td></tr>
   </table>
+</div>
   <p class="small" style="margin:6px 0 2px;">All take a table OID &mdash; pass a table name with
   <code>::regclass</code>, e.g. <code>sqlite_heap_storage('demo'::regclass)</code>.</p>
 </div>
@@ -690,6 +693,7 @@ rowid&harr;TID packing).</li>
 
 <p>The crate is split into six files. Read them roughly in this order:</p>
 
+<div class="tablewrap">
 <table class="data">
 <tr><th>File</th><th>~Lines</th><th>What lives here</th></tr>
 <tr>
@@ -726,6 +730,7 @@ rowid&harr;TID packing).</li>
   method and the drop-trigger, a couple of debug functions, and the test module.</td>
 </tr>
 </table>
+</div>
 
 <p class="small"><span class="file">tests.rs</span> (~1,080 lines) holds the 51-case in-process
 test suite, <code>include!</code>d into <span class="file">lib.rs</span>.</p>
@@ -1056,6 +1061,7 @@ is consistent and runs <code>PRAGMA integrity_check</code> on the SQLite file.</
 <p>Measured with <code>pgbench</code> over a warm connection, against the native Postgres heap.
 Numbers are ratios &mdash; lower is better, 1.0&times; means "as fast as the native heap":</p>
 
+<div class="tablewrap">
 <table class="data">
 <tr><th>Operation</th><th>sqlite_heap vs native heap</th><th>Why</th></tr>
 <tr><td>SELECT (point lookup)</td><td>~1.0&times; &mdash; effectively matched</td>
@@ -1067,6 +1073,7 @@ Numbers are ratios &mdash; lower is better, 1.0&times; means "as fast as the nat
 <tr><td>INSERT</td><td>~1.3&ndash;1.5&times;</td>
     <td>the second fsync (&sect;10) &mdash; the price of two-engine durability</td></tr>
 </table>
+</div>
 
 <p>The headline: <strong>reads are essentially free; writes carry a ~1.3&ndash;1.5&times;
 tax</strong>. Part of that is fundamental &mdash; fsyncing two write-ahead logs instead of one
@@ -1118,6 +1125,7 @@ live.</p>
 <div class="seclabel" id="glossary"><span class="no">17</span> Glossary</div>
 <hr class="drule">
 
+<div class="tablewrap">
 <table class="data">
 <tr><th>Term</th><th>Meaning</th></tr>
 <tr><td><strong>TAM</strong></td><td>Table Access Method &mdash; Postgres's pluggable
@@ -1152,6 +1160,7 @@ live.</p>
 <tr><td><strong>rusqlite</strong></td><td>The Rust SQLite binding sqlite_heap uses to talk to its
   storage files.</td></tr>
 </table>
+</div>
 
 </div><!-- /main -->
 
