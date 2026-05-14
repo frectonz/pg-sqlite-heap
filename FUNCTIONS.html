@@ -264,6 +264,15 @@
     .side { width: 100%; min-width: 0; }
     .navrow a { flex: 1 1 40%; }
   }
+  @media (max-width: 600px) {
+    .sheet { margin: 0; border-left: none; border-right: none; padding: 16px 14px 0; }
+    .mast { flex-wrap: wrap; gap: 8px 16px; }
+    .mast .co { white-space: normal; font-size: 17px; }
+    .spectrum { flex-basis: 100%; }
+    .navrow a { flex: 1 1 100%; }
+    table.data { display: block; overflow-x: auto; }
+    .footer { margin: 28px -14px 0; padding: 9px 14px; }
+  }
 </style>
 </head>
 <body>
