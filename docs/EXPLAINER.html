@@ -69,6 +69,11 @@
     white-space: nowrap;
   }
   .navrow a:hover { background: var(--note); }
+  .navrow a.xpage {
+    background: var(--ink); color: #fff; font-weight: 700;
+    border-color: var(--ink); flex: 0 1 auto;
+  }
+  .navrow a.xpage:hover { background: #000; }
 
   /* ---- section label + dotted rule --------------------------------- */
   .seclabel {
@@ -285,7 +290,7 @@
   <a href="#x-conn">Cross-cutting</a>
   <a href="#perf">Performance</a>
   <a href="#glossary">Glossary</a>
-  <a href="FUNCTIONS.html">SQL Surface &rarr;</a>
+  <a href="FUNCTIONS.html" class="xpage">SQL Surface Reference</a>
 </div>
 
 <div class="cols">

@@ -66,6 +66,11 @@
     white-space: nowrap;
   }
   .navrow a:hover { background: var(--note); }
+  .navrow a.xpage {
+    background: var(--ink); color: #fff; font-weight: 700;
+    border-color: var(--ink); flex: 0 1 auto;
+  }
+  .navrow a.xpage:hover { background: #000; }
 
   .seclabel {
     font-size: 14px; font-weight: 700; margin: 30px 0 0;
@@ -303,7 +308,7 @@
   <a href="#lifecycle">Lifecycle</a>
   <a href="#registration">Registration</a>
   <a href="#tam">TAM Callbacks</a>
-  <a href="EXPLAINER.html">&larr; Engineering Reference</a>
+  <a href="EXPLAINER.html" class="xpage">Engineering Reference</a>
 </div>
 
 <div class="cols">
