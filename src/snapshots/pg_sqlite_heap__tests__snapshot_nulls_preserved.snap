@@ -1,0 +1,26 @@
+---
+source: src/lib.rs
+expression: "rows_as_json(\"SELECT id, name, age FROM n ORDER BY id NULLS LAST\")"
+---
+[
+    {
+        "id": 1,
+        "age": 30,
+        "name": null
+    },
+    {
+        "id": 2,
+        "age": null,
+        "name": "alice"
+    },
+    {
+        "id": 4,
+        "age": null,
+        "name": null
+    },
+    {
+        "id": null,
+        "age": 40,
+        "name": "bob"
+    }
+]

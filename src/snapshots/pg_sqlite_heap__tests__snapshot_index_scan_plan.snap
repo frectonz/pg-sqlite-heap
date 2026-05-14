@@ -1,0 +1,6 @@
+---
+source: src/lib.rs
+expression: "explain_text(\"SELECT name FROM ix WHERE id = 42\")"
+---
+Index Scan using ix_id on ix
+  Index Cond: (id = 42)

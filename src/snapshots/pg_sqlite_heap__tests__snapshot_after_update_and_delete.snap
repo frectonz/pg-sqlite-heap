@@ -1,0 +1,14 @@
+---
+source: src/lib.rs
+expression: "rows_as_json(\"SELECT id, name FROM t ORDER BY id\")"
+---
+[
+    {
+        "id": 1,
+        "name": "ALICE"
+    },
+    {
+        "id": 3,
+        "name": "carol"
+    }
+]

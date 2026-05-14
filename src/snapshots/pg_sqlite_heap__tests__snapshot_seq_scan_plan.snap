@@ -1,0 +1,6 @@
+---
+source: src/lib.rs
+expression: "explain_text(\"SELECT * FROM t WHERE name = 'bob'\")"
+---
+Seq Scan on t
+  Filter: (name = 'bob'::text)

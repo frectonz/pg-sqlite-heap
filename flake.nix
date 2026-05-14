@@ -40,6 +40,15 @@
             pkgs.cargo-insta
             pkgs.rust-analyzer
             pkgs.rust-bin.stable.latest.default
+            # Benchmarking: hyperfine for cold-path wall-clock, jq for JSON,
+            # postgresql_18 puts `psql` and `pgbench` on PATH for the
+            # warm-connection benchmarks.
+            pkgs.hyperfine
+            pkgs.jq
+            pkgs.postgresql_18
+            # `sqlite3` CLI: `tests/concurrency.sh` runs `PRAGMA
+            # integrity_check` directly against the backing SQLite files.
+            pkgs.sqlite
           ];
 
           inputsFrom = with pkgs; [

@@ -12,15 +12,17 @@ path = "./src/bin/pgrx_embed.rs"
 
 [features]
 default = ["pg18"]
-pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]
-pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
-pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
 pg17 = ["pgrx/pg17", "pgrx-tests/pg17" ]
 pg18 = ["pgrx/pg18", "pgrx-tests/pg18" ]
-pg_test = []
+# The pg_test feature compiles the in-postgres test module into the cdylib,
+# so any deps used inside `#[pg_test]` must be present in the regular dep
+# graph (not just dev-dependencies). insta is one such dep.
+pg_test = ["dep:insta"]
 
 [dependencies]
 pgrx = "=0.17.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+insta = { version = "1", optional = true }
 
 [dev-dependencies]
 pgrx-tests = "=0.17.0"
@@ -33,3 +35,4 @@ panic = "unwind"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+debug = true

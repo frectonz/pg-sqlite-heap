@@ -1,0 +1,14 @@
+---
+source: src/lib.rs
+expression: "rows_as_json(\"SELECT n, label FROM sp ORDER BY n\")"
+---
+[
+    {
+        "n": 1,
+        "label": "kept"
+    },
+    {
+        "n": 3,
+        "label": "kept_too"
+    }
+]

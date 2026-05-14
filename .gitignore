@@ -1,5 +1,6 @@
 .DS_Store
 .idea/
+.helix/
 /target
 *.iml
 **/*.rs.bk

@@ -1,0 +1,22 @@
+---
+source: src/lib.rs
+expression: "rows_as_json(\"SELECT * FROM mixed\")"
+---
+[
+    {
+        "b": 9999999999,
+        "i": 1,
+        "j": {
+            "k": "v"
+        },
+        "r": 3.5,
+        "t": "hello",
+        "ba": "\\xdeadbeef",
+        "bl": true,
+        "arr": [
+            1,
+            2,
+            3
+        ]
+    }
+]
