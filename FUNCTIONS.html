@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sqlite_heap — SQL Surface Reference</title>
+<style>
+  :root {
+    --page:   #e9e9e9;
+    --sheet:  #ffffff;
+    --ink:    #111111;
+    --muted:  #6f6f6f;
+    --faint:  #999999;
+    --line:   #000000;
+    --hair:   #cccccc;
+    --hair2:  #e3e3e3;
+    --green:  #007a4d;
+    --red:    #cc1f1f;
+    --navy:   #001b44;
+    --blue:   #003f9b;
+    --yellow: #ffc107;
+    --note:   #f6f6f4;
+    --warn:   #fff8e6;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font: 14.5px/1.6 "Helvetica Neue", Helvetica, Arial, "Univers", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono, code, pre, .diagram, .verstamp {
+    font-family: "Berkeley Mono", "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  }
+
+  .sheet {
+    max-width: 1180px;
+    margin: 30px auto;
+    background: var(--sheet);
+    border: 1px solid var(--line);
+    padding: 22px 26px 0;
+  }
+
+  .mast {
+    display: flex; align-items: center; gap: 16px;
+    padding-bottom: 10px;
+  }
+  .mast .co { font-size: 19px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+  .mast .co span { color: var(--muted); font-weight: 400; }
+  .spectrum { display: flex; flex: 1; height: 15px; min-width: 120px; }
+  .spectrum i { flex: 1; display: block; }
+  .gap { width: 26px; }
+
+  .navrow {
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding-bottom: 16px;
+  }
+  .navrow a {
+    flex: 1; text-align: center;
+    border: 1px solid var(--line);
+    padding: 5px 10px;
+    font-size: 13px; text-decoration: none; color: var(--ink);
+    white-space: nowrap;
+  }
+  .navrow a:hover { background: var(--note); }
+  .navrow a.active { font-weight: 700; }
+  .navrow a .dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--red); margin-right: 5px; vertical-align: 1px;
+  }
+
+  .seclabel {
+    font-size: 14px; font-weight: 700; margin: 30px 0 0;
+    display: flex; align-items: baseline; gap: 8px;
+  }
+  .seclabel .no { color: var(--muted); font-weight: 700; }
+  .seclabel code { font-size: 13px; }
+  .drule {
+    border: none; height: 0;
+    border-top: 1px dotted var(--ink);
+    margin: 6px 0 14px;
+  }
+
+  h3 {
+    font-size: 13px; font-weight: 700; margin: 22px 0 4px;
+    text-transform: uppercase; letter-spacing: .04em;
+  }
+  h4 { font-size: 13.5px; margin: 16px 0 4px; color: var(--green); }
+  p { margin: 10px 0; }
+  a { color: var(--blue); }
+
+  .cols { display: flex; gap: 30px; align-items: flex-start; }
+  .main { flex: 1; min-width: 0; }
+  .side { width: 248px; min-width: 248px; }
+
+  .lede {
+    font-size: 15.5px; line-height: 1.5; margin: 0 0 12px;
+    border-left: 2px solid var(--ink); padding-left: 14px; color: var(--ink);
+  }
+  .lede em { font-style: normal; font-weight: 700; }
+  .tag { font-size: 13.5px; color: #2f2f2f; }
+  .small { font-size: 12.5px; color: var(--muted); }
+
+  .panel { border: 1px solid var(--hair); margin-bottom: 16px; }
+  .panel .ph {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; padding: 5px 10px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .toc a {
+    display: flex; gap: 8px; align-items: baseline;
+    text-decoration: none; color: var(--ink);
+    padding: 4px 10px; font-size: 12.5px;
+    border-bottom: 1px solid var(--hair2);
+  }
+  .toc a:last-child { border-bottom: none; }
+  .toc a:hover { background: var(--note); }
+  .toc a .n { color: var(--muted); min-width: 22px; }
+  .toc a.grp {
+    font-weight: 700; text-transform: uppercase; font-size: 10.5px;
+    letter-spacing: .07em; color: var(--muted); background: var(--note);
+    cursor: default;
+  }
+  .toc a.grp:hover { background: var(--note); }
+  .toc a.mono-i span:last-child {
+    font-family: "Berkeley Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 11.5px;
+  }
+
+  .specsheet td {
+    font-size: 12px; padding: 4px 10px;
+    border-bottom: 1px solid var(--hair2);
+  }
+  .specsheet tr:last-child td { border-bottom: none; }
+  .specsheet td:first-child {
+    color: var(--muted); width: 38%;
+    border-right: 1px solid var(--hair2);
+  }
+  .specsheet td:last-child { font-weight: 700; }
+
+  code {
+    font-size: 12.5px; background: var(--note);
+    border: 1px solid var(--hair2); padding: 0 3px;
+  }
+  pre {
+    background: var(--note);
+    border: 1px solid var(--hair);
+    padding: 11px 13px; overflow-x: auto;
+    font-size: 12.5px; line-height: 1.5; margin: 14px 0;
+  }
+  pre code { background: none; border: none; padding: 0; font-size: 12.5px; }
+  pre.sig {
+    border-left: 3px solid var(--green);
+    background: var(--sheet);
+  }
+  pre.out {
+    background: var(--sheet); border-style: dashed; color: #333;
+  }
+  .sqlcap {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; color: var(--muted); margin: 14px 0 -8px;
+  }
+
+  /* function record */
+  .fn { border: 1px solid var(--hair); margin: 18px 0; }
+  .fn .fnhead {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    padding: 7px 12px; border-bottom: 1px solid var(--hair);
+    background: var(--note);
+  }
+  .fn .fnhead .name {
+    font-family: "Berkeley Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    font-weight: 700; font-size: 13.5px;
+  }
+  .fn .fnhead .kind {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: #fff; background: var(--green);
+    padding: 2px 7px;
+  }
+  .fn .fnhead .kind.life { background: var(--navy); }
+  .fn .fnhead .kind.sql  { background: var(--blue); }
+  .fn .fnhead .kind.tam  { background: #444; }
+  .fn.tam .fnbody { padding-bottom: 10px; }
+  .fn.tam .fnbody p:first-child { margin-top: 8px; }
+  .subhead {
+    font-size: 12px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .07em; color: var(--ink);
+    margin: 26px 0 2px; padding-bottom: 3px;
+    border-bottom: 1px solid var(--hair);
+  }
+  .subhead .cnt { color: var(--muted); font-weight: 400; }
+  .fn .fnhead .src {
+    margin-left: auto; font-size: 11px; color: var(--muted);
+    font-family: "Berkeley Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  .fn .fnbody { padding: 4px 14px 12px; }
+  .fn .fnbody pre { margin: 12px 0; }
+  .fn .fnbody p:first-child { margin-top: 10px; }
+
+  .box {
+    border: 1px solid var(--hair); background: var(--note);
+    margin: 16px 0; padding: 10px 14px;
+  }
+  .box.warn { background: var(--warn); border-color: #e6cf8c; }
+  .box .label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .05em; display: block; margin-bottom: 2px;
+  }
+  .box.warn .label { color: #8a6a16; }
+  .box p:first-of-type { margin-top: 2px; }
+  .box p:last-child { margin-bottom: 2px; }
+
+  table.data {
+    border-collapse: collapse; width: 100%; margin: 16px 0;
+    font-size: 13px; border: 1px solid var(--hair);
+  }
+  table.data th {
+    text-align: left; padding: 5px 10px; font-size: 12px; font-weight: 700;
+    border-bottom: 1px solid var(--line);
+    border-right: 1px solid var(--hair);
+  }
+  table.data th:last-child { border-right: none; }
+  table.data td {
+    text-align: left; padding: 5px 10px; vertical-align: top;
+    border-bottom: 1px solid var(--hair2);
+    border-right: 1px solid var(--hair2);
+  }
+  table.data td:last-child { border-right: none; }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data td code { font-size: 12px; }
+
+  .file {
+    font-weight: 700; color: var(--green);
+    font-family: "Berkeley Mono", "SF Mono", ui-monospace, Menlo, monospace;
+    font-size: 12.5px;
+  }
+  ul, ol { padding-left: 22px; }
+  li { margin: 4px 0; }
+
+  .footer {
+    margin: 34px -26px 0; padding: 9px 26px;
+    border-top: 1px dotted var(--ink);
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+  }
+  .footer .copy {
+    font-size: 10.5px; letter-spacing: .03em; text-transform: uppercase;
+    color: var(--faint);
+  }
+  .footer .stamp { display: flex; }
+  .footer .stamp .env {
+    background: var(--green); color: #fff; font-weight: 700;
+    font-size: 11px; letter-spacing: .08em; padding: 3px 9px;
+  }
+  .footer .verstamp {
+    border: 1px dotted var(--ink); border-left: none;
+    font-size: 11px; padding: 3px 9px; letter-spacing: .04em;
+  }
+
+  @media (max-width: 920px) {
+    .cols { flex-direction: column-reverse; }
+    .side { width: 100%; min-width: 0; }
+    .navrow a { flex: 1 1 40%; }
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+<!-- ============================ MASTHEAD ============================ -->
+<div class="mast">
+  <div class="co">sqlite_heap <span>&nbsp;/ SQL Surface Reference</span></div>
+  <div class="spectrum" aria-hidden="true">
+    <i style="background:#cc1f1f"></i><i style="background:#00a96c"></i>
+    <i style="background:#003f9b"></i><i style="background:#0092ff"></i>
+    <i style="background:#ffc107"></i><i style="background:#cc2197"></i>
+    <i style="background:#111"></i>
+    <span class="gap"></span>
+    <i style="background:#eee"></i><i style="background:#ddd"></i>
+    <i style="background:#bbb"></i><i style="background:#999"></i>
+    <i style="background:#777"></i><i style="background:#555"></i>
+    <i style="background:#333"></i><i style="background:#111"></i>
+    <span class="gap"></span>
+    <i style="background:#527300"></i><i style="background:#008374"></i>
+    <i style="background:#003f9b"></i><i style="background:#7643b9"></i>
+    <i style="background:#cc2197"></i><i style="background:#ad0000"></i>
+    <i style="background:#e25600"></i><i style="background:#ffb700"></i>
+  </div>
+</div>
+
+<div class="navrow">
+  <a href="#intro" class="active"><span class="dot"></span>Surface</a>
+  <a href="#inspection">Inspection</a>
+  <a href="#lifecycle">Lifecycle</a>
+  <a href="#registration">Registration</a>
+  <a href="#tam">TAM Callbacks</a>
+  <a href="EXPLAINER.html">&larr; Engineering Reference</a>
+</div>
+
+<div class="cols">
+
+<!-- ============================== MAIN ============================== -->
+<div class="main">
+
+<!-- ----- intro ----- -->
+<div class="seclabel" id="intro">Office &mdash; SQL Surface Area</div>
+<hr class="drule">
+
+<p class="lede">Everything <code>sqlite_heap</code> adds to a Postgres database, function by
+function. <em>Eight <code>pg_extern</code> functions, four SQL-level objects, and the 44
+<code>TableAmRoutine</code> callbacks</em> &mdash; that is the entire surface. This page walks each
+one: its signature, what it does, and how it is implemented.</p>
+
+<p class="tag">The named functions split three ways. <strong>Inspection</strong> functions are
+read-only windows onto what sqlite_heap keeps on disk &mdash; call them from <code>psql</code> to
+poke at MVCC state. <strong>Lifecycle</strong> is the single plumbing function that cleans up
+files. <strong>Registration</strong> is the SQL emitted at <code>CREATE EXTENSION</code> time that
+wires the access method into Postgres. Below all of that, <strong>the TAM callbacks</strong>
+(&sect;04) are the real engine &mdash; the function pointers Postgres itself calls for every scan,
+fetch, insert, vacuum, and plan.</p>
+
+<p class="tag">Every inspection function takes a table OID &mdash; pass a table name with
+<code>::regclass</code>, e.g. <code>sqlite_heap_storage('demo'::regclass)</code>. For <em>how</em>
+the engine works underneath, see the <a href="EXPLAINER.html">Engineering Reference</a>.</p>
+
+<table class="data">
+<tr><th>Function</th><th>Returns</th><th>Group</th></tr>
+<tr><td><code>sqlite_heap_physical_rows(oid)</code></td><td><code>bigint</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_live_rows(oid)</code></td><td><code>bigint</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_file_path(oid)</code></td><td><code>text</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_file_size(oid)</code></td><td><code>bigint</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_schema_version(oid)</code></td><td><code>integer</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_storage(oid)</code></td><td><code>TABLE(…)</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_files()</code></td><td><code>TABLE(…)</code></td><td>Inspection</td></tr>
+<tr><td><code>sqlite_heap_drop_storage(oid)</code></td><td><code>void</code></td><td>Lifecycle</td></tr>
+<tr><td><code>sqlite_heap_handler(internal)</code></td><td><code>table_am_handler</code></td><td>Registration</td></tr>
+<tr><td><code>sqlite_heap_drop_handler()</code></td><td><code>event_trigger</code></td><td>Registration</td></tr>
+</table>
+
+<!-- ============================= INSPECTION ========================= -->
+<div class="seclabel" id="inspection"><span class="no">01</span> Inspection functions</div>
+<hr class="drule">
+
+<p>Six read-only functions that expose what sqlite_heap keeps on disk. None of them write; all of
+them are thin wrappers over helpers in <span class="file">sqlite.rs</span>.</p>
+
+<!-- physical_rows -->
+<div class="fn" id="physical-rows">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_physical_rows</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:42 &middot; sqlite.rs:472</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_physical_rows(rel oid) RETURNS bigint</code></pre>
+    <p>The number of rows <em>physically present</em> in the SQLite file backing <code>rel</code>
+    &mdash; <strong>including dead, <code>xmax</code>-set versions</strong>. Compare against
+    <a href="#live-rows"><code>sqlite_heap_live_rows</code></a> to see how much dead weight a table
+    is carrying before a <code>VACUUM</code>.</p>
+    <h4>Implementation</h4>
+    <p>One line: <code>sqlite::select_all(rel).len()</code>. <code>select_all</code> runs
+    <code>SELECT rowid, xmin, cmin, xmax, cmax, tuple FROM storage ORDER BY rowid</code> and
+    collects every physical row version into a <code>Vec&lt;StoredRow&gt;</code>; the function
+    returns its length. It does not filter on visibility &mdash; that is the whole point.</p>
+  </div>
+</div>
+
+<!-- live_rows -->
+<div class="fn" id="live-rows">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_live_rows</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:48 &middot; sqlite.rs:472</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_live_rows(rel oid) RETURNS bigint</code></pre>
+    <p>The number of <em>live</em> rows in the SQLite file &mdash; versions with
+    <code>xmax = 0</code>, i.e. no deleter stamped on them.</p>
+    <h4>Implementation</h4>
+    <p>The same <code>sqlite::select_all(rel)</code> dump, then
+    <code>.iter().filter(|r| r.xmax == 0).count()</code>. Note this is a <em>physical</em>
+    liveness test, not a snapshot-relative one: a row whose <code>xmax</code> belongs to a
+    transaction that later aborted still counts as alive here, because <code>xmax = 0</code> is
+    the only thing checked. True per-snapshot visibility lives in
+    <span class="file">visibility.rs</span>.</p>
+  </div>
+</div>
+
+<!-- file_path -->
+<div class="fn" id="file-path">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_file_path</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:57 &middot; sqlite.rs:131</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_file_path(rel oid) RETURNS text</code></pre>
+    <p>The on-disk path of the SQLite file backing <code>rel</code>:
+    <code>$PGDATA/sqlite_heap/&lt;database-oid&gt;/&lt;table-oid&gt;.sqlite</code>. Hand this
+    straight to the <code>sqlite3</code> CLI to open the file yourself.</p>
+    <h4>Implementation</h4>
+    <p><code>sqlite::file_path</code> &rarr; <code>path_for</code> &rarr;
+    <code>with_dir(|d| d.join("{rel_id}.sqlite"))</code>. <code>with_dir</code> computes the
+    directory <code>$PGDATA/sqlite_heap/&lt;MyDatabaseId&gt;/</code> once per backend, caches it in
+    a thread-local (<code>SQLITE_DIR</code>), and <code>create_dir_all</code>s it. The result is
+    returned as a lossy UTF-8 <code>String</code>.</p>
+    <div class="box">
+      <span class="label">Note &mdash; path is computed, not probed</span>
+      <p>This returns the path a table's file <em>would</em> have; it does not check the file
+      exists. Calling it does create the per-database directory as a side effect, but never the
+      <code>.sqlite</code> file itself.</p>
+    </div>
+  </div>
+</div>
+
+<!-- file_size -->
+<div class="fn" id="file-size">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_file_size</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:65</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_file_size(rel oid) RETURNS bigint</code></pre>
+    <p>Size in bytes of the SQLite file backing <code>rel</code>, or <code>0</code> if the file
+    has not been created yet.</p>
+    <h4>Implementation</h4>
+    <p><code>std::fs::metadata(sqlite::file_path(rel)).map(|m| m.len()).unwrap_or(0)</code>. A
+    plain <code>stat</code> on the path from <a href="#file-path"><code>file_path</code></a>; any
+    error (most commonly "file does not exist") collapses to <code>0</code>. This is also the byte
+    figure the planner's <code>relation_estimate_size</code> callback reports &mdash; see
+    <a href="EXPLAINER.html#x-planner">Engineering Reference &sect;12</a>.</p>
+  </div>
+</div>
+
+<!-- schema_version -->
+<div class="fn" id="schema-version">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_schema_version</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:73 &middot; sqlite.rs:136</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_schema_version(rel oid) RETURNS integer</code></pre>
+    <p>The SQLite schema version stamped into <code>rel</code>'s file &mdash; the value of
+    <code>PRAGMA user_version</code>. The current on-disk schema is version <strong>4</strong>.</p>
+    <h4>Implementation</h4>
+    <p><code>with_conn(rel, |conn| conn.query_row("PRAGMA user_version", …).unwrap_or(0))</code>.
+    Going through <code>with_conn</code> means the file is opened lazily on first touch &mdash; and
+    <code>open_conn</code> will <code>install_schema</code> a brand-new file, or
+    <code>migrate_schema</code> an older one, before the query runs. So in practice this almost
+    always returns <code>4</code>; a lower number would mean a file mid-migration, and
+    <code>0</code> means the pragma could not be read at all.</p>
+  </div>
+</div>
+
+<!-- storage -->
+<div class="fn" id="storage">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_storage</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:82 &middot; sqlite.rs:472</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_storage(rel oid)
+  RETURNS TABLE(rowid bigint, xmin bigint, cmin bigint,
+                xmax bigint, cmax bigint, tuple_bytes integer, live boolean)</code></pre>
+    <p>A raw dump of the SQLite <code>storage</code> table for <code>rel</code> &mdash; every
+    physical row version, with the per-row MVCC header columns Postgres normally keeps out of
+    sight. This is the function that powers the "reveal" in the demo: an <code>UPDATE</code> plus a
+    <code>DELETE</code> leaving four physical rows where <code>SELECT</code> shows two.</p>
+    <p class="sqlcap">Example</p>
+    <pre class="out"><code>SELECT * FROM sqlite_heap_storage('demo'::regclass);
+
+ rowid |  xmin   | cmin |  xmax   | cmax | tuple_bytes | live
+-------+---------+------+---------+------+-------------+------
+     1 | 3851268 |    0 |       0 |    0 |          30 | t
+     2 | 3851268 |    0 | 3851269 |    0 |          30 | f
+     3 | 3851268 |    0 | 3851270 |    0 |          30 | f
+     4 | 3851269 |    0 |       0 |    0 |          30 | t</code></pre>
+    <h4>Implementation</h4>
+    <p><code>sqlite::select_all(rel)</code> for the row dump, then each <code>StoredRow</code> is
+    mapped into the output tuple. Two columns are derived rather than stored:
+    <code>tuple_bytes</code> is <code>r.tuple.len()</code> &mdash; the <em>size</em> of the opaque
+    Postgres tuple blob, never its contents &mdash; and <code>live</code> is the boolean
+    <code>r.xmax == 0</code>. The result is returned as a pgrx <code>TableIterator</code>, so
+    Postgres sees it as a set-returning function.</p>
+  </div>
+</div>
+
+<!-- files -->
+<div class="fn" id="files">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_files</span>
+    <span class="kind">Inspection</span>
+    <span class="src">lib.rs:113 &middot; sqlite.rs:144</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_files()
+  RETURNS TABLE(table_oid oid, size_bytes bigint)</code></pre>
+    <p>Every <code>sqlite_heap</code> file in the <em>current database's</em> storage directory.
+    Unlike the other functions it takes no argument &mdash; it lists the whole directory. Join
+    <code>table_oid</code> to <code>pg_class.oid</code> to recover table names:</p>
+    <p class="sqlcap">Example</p>
+    <pre class="out"><code>SELECT c.relname, f.size_bytes
+  FROM sqlite_heap_files() f
+  JOIN pg_class c ON c.oid = f.table_oid
+  ORDER BY 1;</code></pre>
+    <h4>Implementation</h4>
+    <p><code>sqlite::list_files()</code> reads the directory
+    <code>$PGDATA/sqlite_heap/&lt;db-oid&gt;/</code> via <code>with_dir</code>. For each entry it
+    keeps only files with a <code>.sqlite</code> extension, parses the file <em>stem</em> as a
+    <code>u32</code> table OID (skipping anything that does not parse &mdash; e.g.
+    <code>-wal</code>/<code>-shm</code> siblings), <code>stat</code>s each for its byte size, and
+    sorts the results. <code>lib.rs</code> then maps the raw <code>u32</code> back into a
+    <code>pg_sys::Oid</code> for the <code>table_oid</code> column.</p>
+  </div>
+</div>
+
+<!-- ============================= LIFECYCLE ========================== -->
+<div class="seclabel" id="lifecycle"><span class="no">02</span> Lifecycle</div>
+<hr class="drule">
+
+<p>One function. It is exposed as a <code>pg_extern</code> only because an event trigger has to be
+able to call it &mdash; it is plumbing, not an inspection tool.</p>
+
+<!-- drop_storage -->
+<div class="fn" id="drop-storage">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_drop_storage</span>
+    <span class="kind life">Lifecycle</span>
+    <span class="src">lib.rs:128 &middot; sqlite.rs:272</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>sqlite_heap_drop_storage(rel oid) RETURNS void</code></pre>
+    <p>Schedules the SQLite file that backed a now-dropped table to be unlinked. It is called from
+    the <code>sql_drop</code> event trigger (see <a href="#drop-handler">below</a>), once per
+    dropped table. Safe to call for <em>any</em> OID &mdash; a non-sqlite_heap table simply has no
+    file at our path, and the unlink is a harmless no-op.</p>
+    <h4>Implementation</h4>
+    <p><code>sqlite::drop_relation(rel)</code> does <strong>not</strong> unlink immediately. It
+    calls <code>register_xact_callback(Commit, …)</code> &mdash; registering a callback that runs
+    only if and when the surrounding transaction <em>commits</em>. That callback,
+    <code>unlink_storage</code>, removes the connection from the per-backend <code>CONNS</code> map
+    and unlinks the <code>.sqlite</code> file together with its <code>-wal</code>/<code>-shm</code>
+    siblings.</p>
+    <div class="box">
+      <span class="label">Why defer to commit?</span>
+      <p>A <code>DROP TABLE</code> can be rolled back. If the file were unlinked the instant the
+      command ran, a <code>ROLLBACK</code> would leave Postgres with a live catalog entry pointing
+      at a deleted file. Deferring the unlink to the <code>Commit</code> xact callback means a
+      rolled-back <code>DROP</code> leaves the file completely intact &mdash; the callback never
+      fires.</p>
+    </div>
+  </div>
+</div>
+
+<!-- =========================== REGISTRATION ========================= -->
+<div class="seclabel" id="registration"><span class="no">03</span> Registration &mdash; the SQL emitted at install time</div>
+<hr class="drule">
+
+<p>These objects are created by <code>extension_sql!</code> blocks in
+<span class="file">lib.rs</span> when you run <code>CREATE EXTENSION pg_sqlite_heap</code>. They
+are what actually wire sqlite_heap into Postgres &mdash; everything above is just observability on
+top of this.</p>
+
+<!-- handler -->
+<div class="fn" id="handler">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_handler</span>
+    <span class="kind sql">Registration</span>
+    <span class="src">lib.rs:24, 137</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>CREATE FUNCTION sqlite_heap_handler(internal)
+    RETURNS table_am_handler
+    LANGUAGE c AS 'MODULE_PATHNAME', 'sqlite_heap_handler';</code></pre>
+    <p>The access-method handler. Postgres calls it once to obtain the function-pointer table that
+    defines the storage engine.</p>
+    <h4>Implementation</h4>
+    <p>A C-ABI function (PG v1 calling convention) whose entire body is
+    <code>Datum::from(tam::am_routine() as *const pg_sys::TableAmRoutine)</code> &mdash; it returns
+    a pointer to sqlite_heap's static, filled-in <code>TableAmRoutine</code> struct. That struct,
+    built in <span class="file">tam.rs</span>, holds the ~43 callbacks Postgres invokes for scans,
+    inserts, updates, vacuum, and so on. See
+    <a href="EXPLAINER.html#pg-tam">Engineering Reference &sect;2</a>.</p>
+  </div>
+</div>
+
+<!-- access method -->
+<div class="fn" id="access-method">
+  <div class="fnhead">
+    <span class="name">ACCESS METHOD sqlite_heap</span>
+    <span class="kind sql">Registration</span>
+    <span class="src">lib.rs:144</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>CREATE ACCESS METHOD sqlite_heap
+    TYPE TABLE HANDLER sqlite_heap_handler;</code></pre>
+    <p>Registers <code>sqlite_heap</code> as a named table access method backed by the handler
+    above. After this runs, <code>CREATE TABLE … USING sqlite_heap</code> routes that table's
+    storage through sqlite_heap's callbacks instead of the native heap.</p>
+    <p>This and the handler are emitted together in the <code>extension_sql!</code> block named
+    <code>sqlite_heap_access_method</code>.</p>
+  </div>
+</div>
+
+<!-- drop handler -->
+<div class="fn" id="drop-handler">
+  <div class="fnhead">
+    <span class="name">sqlite_heap_drop_handler</span>
+    <span class="kind sql">Registration</span>
+    <span class="src">lib.rs:149</span>
+  </div>
+  <div class="fnbody">
+    <pre class="sig"><code>CREATE FUNCTION sqlite_heap_drop_handler() RETURNS event_trigger
+  LANGUAGE plpgsql AS $$ … $$;
+
+CREATE EVENT TRIGGER sqlite_heap_on_drop
+    ON sql_drop EXECUTE FUNCTION sqlite_heap_drop_handler();</code></pre>
+    <p>A PL/pgSQL event-trigger function plus the trigger that fires it. Together they make sure
+    the SQLite file is cleaned up whenever a table is dropped.</p>
+    <h4>Implementation</h4>
+    <p>The trigger fires on the <code>sql_drop</code> event. The handler loops over
+    <code>pg_event_trigger_dropped_objects()</code>, filters to rows where
+    <code>object_type = 'table'</code>, and calls
+    <a href="#drop-storage"><code>sqlite_heap_drop_storage(obj.objid)</code></a> for each &mdash;
+    which (as above) schedules the unlink for commit time. The <code>extension_sql!</code> block
+    is named <code>sqlite_heap_drop_trigger</code> and declares
+    <code>requires = [sqlite_heap_drop_storage]</code> so pgrx emits the Rust function first.</p>
+    <div class="box warn">
+      <span class="label">Note &mdash; the catch-all is deliberate</span>
+      <p>The trigger does not (and cannot easily) check whether a dropped table used
+      <code>sqlite_heap</code>. It calls <code>sqlite_heap_drop_storage</code> for <em>every</em>
+      dropped table; the function is a no-op for tables that have no file at our path. Simpler, and
+      correct.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============================= TAM =============================== -->
+<div class="seclabel" id="tam"><span class="no">04</span> Table Access Method callbacks</div>
+<hr class="drule">
+
+<p>The 44 function pointers that make up sqlite_heap's <code>TableAmRoutine</code> &mdash; the
+struct returned by <a href="#handler"><code>sqlite_heap_handler</code></a>. Postgres calls these,
+never you; they are the entire storage engine. Each is a <code>#[pg_guard]</code>'d
+<code>extern "C-unwind"</code> function in <span class="file">tam.rs</span> that wraps the raw
+pointers Postgres hands it in <code>ffi::Rel</code> / <code>ffi::Slot</code> and delegates to a
+safe inner function. They are grouped below exactly as they are wired up in
+<code>am_routine()</code>.</p>
+
+<div class="box">
+  <span class="label">Shared scan state</span>
+  <p>Every scan callback operates on a <code>SqliteScanState</code> (a palloc'd struct Postgres
+  treats as the opaque <code>TableScanDesc</code>) wrapping a boxed <code>SqliteCursor</code>. The
+  cursor holds the relation's rows in a <code>Vec&lt;StoredRow&gt;</code>, loaded <em>lazily</em>
+  by <code>ensure_rows_loaded</code> &mdash; a sequential, sample, or analyze scan needs the whole
+  table; an exact bitmap scan must not pay for it. It also carries the per-page bitmap-scan state
+  and the one-logical-block flag used by sampling.</p>
+</div>
+
+<!-- ---- slot ---- -->
+<div class="subhead">Slot <span class="cnt">&mdash; 1 callback</span></div>
+
+<div class="fn tam" id="tam-slot_callbacks">
+  <div class="fnhead"><span class="name">slot_callbacks</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:103</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>slot_callbacks(rel) -> *const TupleTableSlotOps</code></pre>
+    <p>Returns <code>&amp;TTSOpsHeapTuple</code>. sqlite_heap reconstructs every row as a standard
+    Postgres <code>HeapTuple</code> from its stored bytes, so all slots use the built-in
+    heap-tuple slot ops &mdash; no custom slot type.</p>
+  </div>
+</div>
+
+<!-- ---- sequential scan ---- -->
+<div class="subhead">Sequential scan <span class="cnt">&mdash; 6 callbacks</span></div>
+
+<div class="fn tam" id="tam-scan_begin">
+  <div class="fnhead"><span class="name">scan_begin</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:133</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_begin(rel, snapshot, nkeys, key, pscan, flags) -> TableScanDesc</code></pre>
+    <p>Allocates a <code>SqliteScanState</code> with <code>palloc0</code>, boxes a fresh
+    <code>SqliteCursor</code> inside it, and stashes the snapshot, scan keys, and flags into the
+    base descriptor. Rows are <em>not</em> loaded here &mdash; that is deferred to first use.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_end">
+  <div class="fnhead"><span class="name">scan_end</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:146</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_end(scan)</code></pre>
+    <p>Tears the scan down: reclaims the boxed <code>SqliteCursor</code> (running its destructor)
+    and <code>pfree</code>s the state struct.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_rescan">
+  <div class="fnhead"><span class="name">scan_rescan</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:151</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_rescan(scan, key, set_params, allow_strat, allow_sync, allow_pagemode)</code></pre>
+    <p>Restarts the scan from the top: resets the cursor position to <code>0</code>. The loaded
+    rows <code>Vec</code> is kept &mdash; a rescan re-walks the same snapshot's data.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_getnextslot">
+  <div class="fnhead"><span class="name">scan_getnextslot</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:165</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_getnextslot(scan, direction, slot) -> bool</code></pre>
+    <p>The sequential-scan workhorse. On first call <code>ensure_rows_loaded</code> runs
+    <code>sqlite::select_all</code> to pull every physical row version into the cursor. Each call
+    then walks forward from <code>cursor.pos</code>, running
+    <code>visibility::row_visible(header, snapshot)</code> on each version; the first one the
+    snapshot should see is decoded into the slot and <code>true</code> is returned. Returns
+    <code>false</code> at end of table.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_set_tidrange">
+  <div class="fnhead"><span class="name">scan_set_tidrange</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:197</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_set_tidrange(scan, mintid, maxtid)</code></pre>
+    <p>For <code>WHERE ctid BETWEEN …</code> scans: stores the min/max TID bounds in the scan
+    descriptor and resets the cursor position, so the next <code>getnextslot_tidrange</code> call
+    starts fresh within the new range.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_getnextslot_tidrange">
+  <div class="fnhead"><span class="name">scan_getnextslot_tidrange</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:213</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_getnextslot_tidrange(scan, direction, slot) -> bool</code></pre>
+    <p>Like <code>scan_getnextslot</code>, but additionally skips any row whose <code>rowid</code>
+    falls outside the <code>[min, max]</code> range stashed by <code>scan_set_tidrange</code>
+    before applying the visibility check.</p>
+  </div>
+</div>
+
+<!-- ---- parallel scan ---- -->
+<div class="subhead">Parallel scan <span class="cnt">&mdash; 3 callbacks</span></div>
+
+<div class="fn tam" id="tam-parallelscan">
+  <div class="fnhead"><span class="name">parallelscan_estimate / _initialize / _reinitialize</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:110, 115, 123</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>parallelscan_estimate(rel) -> Size
+parallelscan_initialize(rel, pscan) -> Size
+parallelscan_reinitialize(rel, pscan)</code></pre>
+    <p>All three delegate straight to Postgres's generic block-based parallel-scan helpers
+    (<code>table_block_parallelscan_*</code>). sqlite_heap does not actually divide a scan across
+    workers &mdash; but providing valid implementations means a parallel plan over a sqlite_heap
+    table is well-formed rather than a crash.</p>
+  </div>
+</div>
+
+<!-- ---- index access ---- -->
+<div class="subhead">Index access <span class="cnt">&mdash; 4 callbacks</span></div>
+
+<div class="fn tam" id="tam-index_fetch_begin">
+  <div class="fnhead"><span class="name">index_fetch_begin</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:244</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_fetch_begin(rel) -> *mut IndexFetchTableData</code></pre>
+    <p><code>palloc0</code>s an <code>IndexFetchTableData</code> and stores the relation pointer in
+    it. There is no per-scan SQLite state to set up &mdash; each fetch is an independent
+    point lookup.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_fetch_reset">
+  <div class="fnhead"><span class="name">index_fetch_reset</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:256</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_fetch_reset(data)</code></pre>
+    <p>Empty. Nothing is cached between fetches, so there is nothing to reset.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_fetch_end">
+  <div class="fnhead"><span class="name">index_fetch_end</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:259</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_fetch_end(data)</code></pre>
+    <p><code>pfree</code>s the <code>IndexFetchTableData</code> allocated by
+    <code>index_fetch_begin</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_fetch_tuple">
+  <div class="fnhead"><span class="name">index_fetch_tuple</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:264</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_fetch_tuple(scan, tid, snapshot, slot, call_again, all_dead) -> bool</code></pre>
+    <p>The hot index-scan path. Unpacks the index-supplied TID to a SQLite rowid via
+    <code>ffi::tid_to_rowid</code>, calls <code>sqlite::fetch_one_ref</code> for a zero-copy view
+    of that row, checks <code>visibility::row_visible</code>, and stores it into the slot if
+    visible. Sets <code>call_again = false</code> and <code>all_dead = false</code> &mdash;
+    sqlite_heap has no HOT-style version chains, so each TID is a single independent version.</p>
+  </div>
+</div>
+
+<!-- ---- tuple lifecycle / visibility ---- -->
+<div class="subhead">Tuple lifecycle &amp; visibility <span class="cnt">&mdash; 5 callbacks</span></div>
+
+<div class="fn tam" id="tam-tuple_fetch_row_version">
+  <div class="fnhead"><span class="name">tuple_fetch_row_version</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:304</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_fetch_row_version(rel, tid, snapshot, slot) -> bool</code></pre>
+    <p>Fetches one specific row version by TID (used for <code>ctid</code> re-fetches, trigger
+    re-reads, and similar). Same <code>fetch_one_into_slot</code> path as
+    <code>index_fetch_tuple</code>: unpack TID &rarr; read by rowid &rarr; visibility-check &rarr;
+    store.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_tid_valid">
+  <div class="fnhead"><span class="name">tuple_tid_valid</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:317</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_tid_valid(scan, tid) -> bool</code></pre>
+    <p>Does a row <em>physically</em> exist at this TID? Unpacks the TID and returns
+    <code>sqlite::select_one(rowid).is_some()</code> &mdash; a physical-presence test, no
+    visibility involved.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_get_latest_tid">
+  <div class="fnhead"><span class="name">tuple_get_latest_tid</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:327</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_get_latest_tid(scan, tid)</code></pre>
+    <p>A no-op. The native heap walks an in-place update chain to find a row's newest version;
+    sqlite_heap has no such chains (an UPDATE writes an independent new row), so "the latest TID"
+    is just the TID passed in. This is a documented simplification &mdash; see
+    <a href="EXPLAINER.html#limits">Engineering Reference &sect;16</a>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_satisfies_snapshot">
+  <div class="fnhead"><span class="name">tuple_satisfies_snapshot</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:334</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_satisfies_snapshot(rel, slot, snapshot) -> bool</code></pre>
+    <p>Re-checks whether the row currently in a slot is visible to a given snapshot. Reads the
+    slot's stored TID, re-fetches that row by rowid with <code>sqlite::select_one</code>, and runs
+    <code>visibility::row_visible</code> against it; <code>false</code> if the row is gone.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_delete_tuples">
+  <div class="fnhead"><span class="name">index_delete_tuples</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:350</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_delete_tuples(rel, delstate) -> TransactionId</code></pre>
+    <p>btree's "bottom-up deletion" hook: given a batch of index TIDs from one leaf page, mark
+    which point at reclaimable rows. sqlite_heap batch-reads the <code>xmax</code> of every rowid
+    in one <code>WHERE rowid IN (…)</code> query (<code>select_xmax_batch</code>), then per entry
+    decides <em>deletable</em> = the row is physically gone, <em>or</em> its <code>xmax</code> is
+    committed and older than the global oldest snapshot (the same bar as VACUUM). It sets
+    <code>status[id].knowndeletable</code> accordingly; if <em>nothing</em> is deletable it shrinks
+    <code>ndeltids</code> to <code>0</code> (otherwise btree's
+    <code>_bt_delitems_delete</code> would assert). Returns the newest reclaimed xid for the
+    recovery-conflict horizon.</p>
+  </div>
+</div>
+
+<!-- ---- tuple modification ---- -->
+<div class="subhead">Tuple modification <span class="cnt">&mdash; 8 callbacks</span></div>
+
+<div class="fn tam" id="tam-tuple_insert">
+  <div class="fnhead"><span class="name">tuple_insert</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:417</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_insert(rel, slot, cid, options, bistate)</code></pre>
+    <p>Materializes the slot's row as raw bytes (<code>copy_heap_tuple</code>), reads the current
+    transaction id, calls <code>sqlite::insert(rel, xid, cid, bytes)</code>, and stamps the
+    SQLite-assigned rowid back onto the slot as a TID so indexes / <code>RETURNING</code> /
+    triggers see where it landed.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_insert_speculative">
+  <div class="fnhead"><span class="name">tuple_insert_speculative</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:441</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_insert_speculative(rel, slot, cid, options, bistate, spec_token)</code></pre>
+    <p>For <code>INSERT … ON CONFLICT</code>. Inserts the row exactly like a normal
+    <code>tuple_insert</code>; if the speculation loses,
+    <code>tuple_complete_speculative</code> retracts it.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_complete_speculative">
+  <div class="fnhead"><span class="name">tuple_complete_speculative</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:457</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_complete_speculative(rel, slot, spec_token, succeeded)</code></pre>
+    <p>If <code>succeeded</code>, nothing to do &mdash; the speculative row is now a normal row. If
+    the speculation lost, <code>sqlite::physical_delete</code> removes the speculative row
+    outright (a real delete, not an <code>xmax</code> stamp, since it never logically existed).</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-multi_insert">
+  <div class="fnhead"><span class="name">multi_insert</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:473</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>multi_insert(rel, slots, nslots, cid, options, bistate)</code></pre>
+    <p>The <code>COPY</code> / multi-row <code>INSERT</code> path. Materializes every slot once,
+    then issues a single batched <code>sqlite::insert_batch</code> rather than N trips through the
+    per-row path, and stamps each assigned TID back onto its slot.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_delete">
+  <div class="fnhead"><span class="name">tuple_delete</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:505</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_delete(rel, tid, cid, snapshot, crosscheck, wait, tmfd, changing_part) -> TM_Result</code></pre>
+    <p>An MVCC delete: <code>sqlite::set_xmax</code> stamps the row at <code>tid</code> dead with
+    our xid/cid (it stays physically on disk). Returns <code>TM_Ok</code>, or
+    <code>TM_Deleted</code> if no live row was there to stamp.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_update">
+  <div class="fnhead"><span class="name">tuple_update</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:526</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_update(rel, otid, slot, cid, snapshot, crosscheck, wait, tmfd, lockmode, update_indexes) -> TM_Result</code></pre>
+    <p>An MVCC update = delete + insert. <code>sqlite::update_row</code> stamps the old row
+    (<code>otid</code>) dead and inserts the new version at a fresh rowid; the new TID is stamped
+    onto the slot, and <code>update_indexes</code> is set to <code>TU_All</code> so Postgres
+    repoints every index. Returns <code>TM_Ok</code>. No HOT optimisation &mdash; see
+    <a href="EXPLAINER.html#w-update">Engineering Reference &sect;9</a>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-tuple_lock">
+  <div class="fnhead"><span class="name">tuple_lock</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:556</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>tuple_lock(rel, tid, snapshot, slot, cid, mode, wait_policy, flags, tmfd) -> TM_Result</code></pre>
+    <p><code>SELECT FOR UPDATE</code> / row locking. Minimal: it re-fetches the row into the slot
+    and returns <code>TM_Ok</code> (or <code>TM_Deleted</code>). It holds <em>no real row
+    lock</em> &mdash; that would need a lock table &mdash; so it is best-effort under multi-backend
+    contention. This is the most significant documented limitation; see
+    <a href="EXPLAINER.html#limits">Engineering Reference &sect;16</a>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-finish_bulk_insert">
+  <div class="fnhead"><span class="name">finish_bulk_insert</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:580</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>finish_bulk_insert(rel, options)</code></pre>
+    <p>Empty. There is no buffered bulk-insert state to flush &mdash;
+    <code>multi_insert</code> already commits each batch through the normal SQLite path.</p>
+  </div>
+</div>
+
+<!-- ---- relation lifecycle ---- -->
+<div class="subhead">Relation lifecycle <span class="cnt">&mdash; 5 callbacks</span></div>
+
+<div class="fn tam" id="tam-relation_set_new_filelocator">
+  <div class="fnhead"><span class="name">relation_set_new_filelocator</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:589</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_set_new_filelocator(rel, newrlocator, persistence, freeze_xid, minmulti)</code></pre>
+    <p>Called when a table needs fresh storage &mdash; <code>CREATE TABLE</code>, and the
+    rewriting form of <code>TRUNCATE</code>. Calls <code>sqlite::reset</code>, which opens (and, if
+    new, creates + schema-installs) the SQLite file and empties its <code>storage</code> table.
+    See <a href="EXPLAINER.html#w-create">Engineering Reference &sect;6</a>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_nontransactional_truncate">
+  <div class="fnhead"><span class="name">relation_nontransactional_truncate</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:601</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_nontransactional_truncate(rel)</code></pre>
+    <p>The fast <code>TRUNCATE</code> path, taken when the table was created in the same
+    transaction. Also just <code>sqlite::reset</code> &mdash; empty the <code>storage</code>
+    table.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_copy_data">
+  <div class="fnhead"><span class="name">relation_copy_data</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:608</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_copy_data(rel, newrlocator)</code></pre>
+    <p>A no-op. This fires for <code>ALTER TABLE … SET TABLESPACE</code>, but sqlite_heap's files
+    are keyed by relation OID &mdash; which is stable across a tablespace move &mdash; so the data
+    stays exactly where it is.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_copy_for_cluster">
+  <div class="fnhead"><span class="name">relation_copy_for_cluster</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:617</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_copy_for_cluster(old, new, old_index, use_sort, oldest_xmin, …, num_tuples, tups_vacuumed, tups_recently_dead)</code></pre>
+    <p><code>CLUSTER</code> / <code>VACUUM FULL</code>. The new table's storage was already created
+    fresh by <code>relation_set_new_filelocator</code>; this streams every <em>live</em> row
+    (<code>xmax = 0</code>) from the old file into the new one with <code>sqlite::insert</code>,
+    counting live rows into <code>num_tuples</code> and dead ones into
+    <code>tups_vacuumed</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_vacuum">
+  <div class="fnhead"><span class="name">relation_vacuum</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:655</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_vacuum(rel, params, bstrategy)</code></pre>
+    <p>Computes the global "oldest transaction id any snapshot could still need"
+    (<code>GetOldestNonRemovableTransactionId</code>) and calls <code>sqlite::vacuum_dead</code>,
+    which physically <code>DELETE</code>s every row whose <code>xmax</code> is set, committed, and
+    older than that bound. See <a href="EXPLAINER.html#x-vacuum">Engineering Reference
+    &sect;13</a>.</p>
+  </div>
+</div>
+
+<!-- ---- analyze & index build ---- -->
+<div class="subhead">ANALYZE &amp; index build <span class="cnt">&mdash; 4 callbacks</span></div>
+
+<div class="fn tam" id="tam-scan_analyze_next_block">
+  <div class="fnhead"><span class="name">scan_analyze_next_block</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:667</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_analyze_next_block(scan, stream) -> bool</code></pre>
+    <p>sqlite_heap models the whole table as a single logical block. The subtle part: it still
+    <em>must</em> advance the <code>ReadStream</code> with <code>read_stream_next_block</code>
+    (which moves the sampler counter <code>acquire_sample_rows</code> divides by, doing no buffer
+    I/O). Skipping it left that counter at <code>0</code>, so ANALYZE extrapolated 0 rows and
+    <code>n_distinct</code> came out <code>-Infinity</code>. Resets the cursor and returns
+    <code>true</code> once, then <code>false</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_analyze_next_tuple">
+  <div class="fnhead"><span class="name">scan_analyze_next_tuple</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:689</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_analyze_next_tuple(scan, oldest_xmin, liverows, deadrows, slot) -> bool</code></pre>
+    <p>Walks the cursor's physical rows; each live row (<code>xmax = 0</code>) is stored into the
+    slot and counted into <code>liverows</code>, each dead one into <code>deadrows</code>. The
+    sampled live rows feed Postgres's column-statistics estimator.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_build_range_scan">
+  <div class="fnhead"><span class="name">index_build_range_scan</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:717</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_build_range_scan(table, index, index_info, …, callback, callback_state, scan) -> f64</code></pre>
+    <p>Powers <code>CREATE INDEX</code>. Scans every live row of the table, builds the index datums
+    for each with <code>FormIndexDatum</code>, and invokes the supplied btree callback with the
+    row's <code>(rowid &rarr; TID)</code>. Returns the count of indexed tuples. Visibility is
+    deliberately <em>not</em> checked here &mdash; it is applied later at index-fetch time.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-index_validate_scan">
+  <div class="fnhead"><span class="name">index_validate_scan</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:806</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>index_validate_scan(table, index, index_info, snapshot, state)</code></pre>
+    <p>The validate pass of <code>REINDEX CONCURRENTLY</code>. A no-op: <code>index_build_range_scan</code>
+    already saw every committed row. (Limitation: a multi-writer <code>REINDEX CONCURRENTLY</code>
+    may miss rows committed mid-build.)</p>
+  </div>
+</div>
+
+<!-- ---- size & toast ---- -->
+<div class="subhead">Size &amp; TOAST <span class="cnt">&mdash; 5 callbacks</span></div>
+
+<div class="fn tam" id="tam-relation_size">
+  <div class="fnhead"><span class="name">relation_size</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:819</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_size(rel, fork) -> u64</code></pre>
+    <p>sqlite_heap has no real Postgres relfile. It reports the main fork as exactly one
+    <code>BLCKSZ</code> block &mdash; matching the single logical block
+    <code>scan_analyze_next_block</code> yields, so ANALYZE's row-count arithmetic works &mdash;
+    and every other fork (FSM, visibility map, init) as <code>0</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_needs_toast_table">
+  <div class="fnhead"><span class="name">relation_needs_toast_table</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:834</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_needs_toast_table(rel) -> bool</code></pre>
+    <p>Always <code>false</code>. Row bytes are stored as SQLite <code>BLOB</code>s with no size
+    ceiling, so there is never a need for a Postgres TOAST side-table.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_toast_am">
+  <div class="fnhead"><span class="name">relation_toast_am</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:838</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_toast_am(rel) -> Oid</code></pre>
+    <p>Returns <code>InvalidOid</code> &mdash; there is no TOAST access method, consistent with
+    <code>relation_needs_toast_table</code> returning <code>false</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_fetch_toast_slice">
+  <div class="fnhead"><span class="name">relation_fetch_toast_slice</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:844</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_fetch_toast_slice(toastrel, valueid, attrsize, sliceoffset, slicelength, result)</code></pre>
+    <p>Empty. Since sqlite_heap never creates a TOAST table, Postgres never has a reason to call
+    this &mdash; it is present only to keep the routine table complete.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-relation_estimate_size">
+  <div class="fnhead"><span class="name">relation_estimate_size</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:855</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>relation_estimate_size(rel, attr_widths, pages, tuples, allvisfrac)</code></pre>
+    <p>The planner's per-plan size hook, called on every query plan. <code>sqlite::estimate_size</code>
+    returns the file's byte size and row count; the bytes are converted to a page count
+    (<code>div_ceil(8192)</code>, minimum 1). <code>allvisfrac</code> is set to <code>1.0</code>
+    &mdash; sqlite_heap keeps no visibility map, and claiming "all visible" keeps index-only scans
+    from being penalized. See <a href="EXPLAINER.html#x-planner">Engineering Reference
+    &sect;12</a>.</p>
+  </div>
+</div>
+
+<!-- ---- bitmap & sample scans ---- -->
+<div class="subhead">Bitmap &amp; sample scans <span class="cnt">&mdash; 3 callbacks</span></div>
+
+<div class="fn tam" id="tam-scan_bitmap_next_tuple">
+  <div class="fnhead"><span class="name">scan_bitmap_next_tuple</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:875</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_bitmap_next_tuple(scan, slot, recheck, lossy_pages, exact_pages) -> bool</code></pre>
+    <p>Drives a bitmap heap scan. It drains the current page's offsets, fetching each row
+    visibility-filtered; when a page is exhausted it pulls the next from the TID-bitmap iterator.
+    For an <em>exact</em> page it extracts the page's offsets with
+    <code>tbm_extract_page_tuple</code>; for a <em>lossy</em> page (which only names a block) it
+    enumerates every loaded rowid that maps into that block. Tallies
+    <code>lossy_pages</code> / <code>exact_pages</code> as it goes.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_sample_next_block">
+  <div class="fnhead"><span class="name">scan_sample_next_block</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:952</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_sample_next_block(scan, scanstate) -> bool</code></pre>
+    <p>For <code>TABLESAMPLE</code>. The whole table is one logical block: this yields it exactly
+    once (setting <code>sample_block_consumed</code> and resetting the cursor), then returns
+    <code>false</code>.</p>
+  </div>
+</div>
+
+<div class="fn tam" id="tam-scan_sample_next_tuple">
+  <div class="fnhead"><span class="name">scan_sample_next_tuple</span>
+    <span class="kind tam">TAM</span><span class="src">tam.rs:969</span></div>
+  <div class="fnbody">
+    <pre class="sig"><code>scan_sample_next_tuple(scan, scanstate, slot) -> bool</code></pre>
+    <p>Yields every visible live row of the table. <code>TABLESAMPLE</code> on sqlite_heap
+    therefore returns the <em>whole</em> table rather than the requested fraction &mdash;
+    imprecise, but never empty. A documented simplification.</p>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- ============================== SIDE ============================== -->
+<div class="side">
+
+  <div class="panel">
+    <div class="ph">Function Index</div>
+    <div class="toc">
+      <a class="grp">Inspection</a>
+      <a class="mono-i" href="#physical-rows"><span class="n">&middot;</span><span>physical_rows</span></a>
+      <a class="mono-i" href="#live-rows"><span class="n">&middot;</span><span>live_rows</span></a>
+      <a class="mono-i" href="#file-path"><span class="n">&middot;</span><span>file_path</span></a>
+      <a class="mono-i" href="#file-size"><span class="n">&middot;</span><span>file_size</span></a>
+      <a class="mono-i" href="#schema-version"><span class="n">&middot;</span><span>schema_version</span></a>
+      <a class="mono-i" href="#storage"><span class="n">&middot;</span><span>storage</span></a>
+      <a class="mono-i" href="#files"><span class="n">&middot;</span><span>files</span></a>
+      <a class="grp">Lifecycle</a>
+      <a class="mono-i" href="#drop-storage"><span class="n">&middot;</span><span>drop_storage</span></a>
+      <a class="grp">Registration</a>
+      <a class="mono-i" href="#handler"><span class="n">&middot;</span><span>handler</span></a>
+      <a class="mono-i" href="#access-method"><span class="n">&middot;</span><span>access method</span></a>
+      <a class="mono-i" href="#drop-handler"><span class="n">&middot;</span><span>drop_handler</span></a>
+      <a class="grp">TAM Callbacks &mdash; &sect;04</a>
+      <a href="#tam-slot_callbacks"><span class="n">&middot;</span><span>Slot &middot; 1</span></a>
+      <a href="#tam-scan_begin"><span class="n">&middot;</span><span>Sequential scan &middot; 6</span></a>
+      <a href="#tam-parallelscan"><span class="n">&middot;</span><span>Parallel scan &middot; 3</span></a>
+      <a href="#tam-index_fetch_begin"><span class="n">&middot;</span><span>Index access &middot; 4</span></a>
+      <a href="#tam-tuple_fetch_row_version"><span class="n">&middot;</span><span>Lifecycle &amp; visibility &middot; 5</span></a>
+      <a href="#tam-tuple_insert"><span class="n">&middot;</span><span>Tuple modification &middot; 8</span></a>
+      <a href="#tam-relation_set_new_filelocator"><span class="n">&middot;</span><span>Relation lifecycle &middot; 5</span></a>
+      <a href="#tam-scan_analyze_next_block"><span class="n">&middot;</span><span>ANALYZE &amp; index build &middot; 4</span></a>
+      <a href="#tam-relation_size"><span class="n">&middot;</span><span>Size &amp; TOAST &middot; 5</span></a>
+      <a href="#tam-scan_bitmap_next_tuple"><span class="n">&middot;</span><span>Bitmap &amp; sample &middot; 3</span></a>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="ph">Specsheet</div>
+    <table class="specsheet">
+      <tr><td>Named fns</td><td>8 + 4 SQL</td></tr>
+      <tr><td>Inspection</td><td>6 functions</td></tr>
+      <tr><td>Lifecycle</td><td>1 function</td></tr>
+      <tr><td>Registration</td><td>4 objects</td></tr>
+      <tr><td>TAM callbacks</td><td>44 pointers</td></tr>
+      <tr><td>Defined in</td><td>lib.rs / tam.rs</td></tr>
+      <tr><td>Backed by</td><td>sqlite.rs</td></tr>
+      <tr><td>Arg type</td><td>oid (::regclass)</td></tr>
+    </table>
+  </div>
+
+  <div class="panel">
+    <div class="ph">See Also</div>
+    <table class="specsheet">
+      <tr><td>Theory</td><td><a href="EXPLAINER.html">EXPLAINER</a></td></tr>
+      <tr><td>Demo</td><td><a href="EXPLAINER.html#demo">&sect;1.5</a></td></tr>
+      <tr><td>TAM API</td><td><a href="EXPLAINER.html#pg-tam">&sect;2</a></td></tr>
+    </table>
+  </div>
+
+</div><!-- /side -->
+
+</div><!-- /cols -->
+
+<!-- ============================= FOOTER ============================= -->
+<div class="footer">
+  <span class="copy">&copy; 2026 sqlite_heap &mdash; SQL surface reference. The complete API:
+  8 pg_extern functions, 4 registration objects, and 44 TableAmRoutine callbacks.</span>
+  <span class="stamp">
+    <span class="env">DOC</span>
+    <span class="verstamp">SCHEMA&nbsp;v4</span>
+  </span>
+</div>
+
+</div><!-- /sheet -->
+</body>
+</html>
