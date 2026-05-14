@@ -30,6 +30,7 @@
     color: var(--ink);
     font: 14.5px/1.6 "Helvetica Neue", Helvetica, Arial, "Univers", sans-serif;
     -webkit-font-smoothing: antialiased;
+    overflow-wrap: break-word;
   }
   .mono, code, pre, .diagram, .verstamp {
     font-family: "Berkeley Mono", "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
@@ -98,7 +99,7 @@
 
   /* ---- body grid ---------------------------------------------------- */
   .cols { display: flex; gap: 30px; align-items: flex-start; }
-  .main { flex: 1; min-width: 0; }
+  .main { flex: 1; min-width: 0; overflow-wrap: break-word; }
   .side { width: 248px; min-width: 248px; }
 
   /* ---- intro -------------------------------------------------------- */
@@ -136,6 +137,7 @@
   .specsheet td {
     font-size: 12px; padding: 4px 10px;
     border-bottom: 1px solid var(--hair2);
+    overflow-wrap: anywhere;
   }
   .specsheet tr:last-child td { border-bottom: none; }
   .specsheet td:first-child {
@@ -194,6 +196,7 @@
   table.data {
     border-collapse: collapse; width: 100%; margin: 16px 0;
     font-size: 13px; border: 1px solid var(--hair);
+    display: block; overflow-x: auto; max-width: 100%;
   }
   table.data th {
     text-align: left; padding: 5px 10px; font-size: 12px; font-weight: 700;
@@ -240,7 +243,7 @@
   }
 
   @media (max-width: 920px) {
-    .cols { flex-direction: column-reverse; }
+    .cols { flex-direction: column-reverse; align-items: stretch; }
     .side { width: 100%; min-width: 0; }
     .navrow a { flex: 1 1 40%; }
   }
@@ -250,7 +253,6 @@
     .mast .co { white-space: normal; font-size: 17px; }
     .spectrum { flex-basis: 100%; }
     .navrow a { flex: 1 1 100%; }
-    table.data { display: block; overflow-x: auto; }
     .footer { margin: 28px -14px 0; padding: 9px 14px; }
   }
 </style>
