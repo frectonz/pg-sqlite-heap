@@ -11,6 +11,11 @@ table gets its own file at `$PGDATA/sqlite_heap/<db-oid>/<table-oid>.sqlite`.
 
 Supports Postgres **17** and **18**.
 
+## Documentation
+
+- [Engineering Reference](https://frectonz.github.io/pg-sqlite-heap/EXPLAINER.html) — architecture and internals
+- [SQL Surface Reference](https://frectonz.github.io/pg-sqlite-heap/FUNCTIONS.html) — functions and SQL API
+
 ## Usage
 
 ```sql
