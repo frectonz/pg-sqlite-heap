@@ -1,0 +1,6 @@
+comment = 'pg_sqlite_heap_ll: a Postgres extension hand-written in LLVM IR'
+default_version = '0.0.0'
+module_pathname = '$libdir/pg_sqlite_heap_ll'
+relocatable = false
+superuser = true
+trusted = false
