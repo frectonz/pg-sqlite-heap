@@ -13,10 +13,13 @@
 #include "postgres.h"
 #include "access/htup_details.h"
 #include "access/tableam.h"
+#include "catalog/index.h"
+#include "executor/executor.h"
 #include "executor/tuptable.h"
 #include "miscadmin.h"
 #include "storage/itemptr.h"
 #include "utils/rel.h"
+#include "utils/snapmgr.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -293,3 +296,55 @@ static const TableAmRoutine ll_routine = {
 
 PGDLLEXPORT const TableAmRoutine *shim_get_routine(void);
 const TableAmRoutine *shim_get_routine(void) { return &ll_routine; }
+
+/* ---------- index_build_range_scan --------------------------------------- */
+/*
+ * Walk the heap via the IR-defined scan_* callbacks, hand each tuple to the
+ * index AM's callback. Mirrors heap_handler.c's heapam_index_build_range_scan
+ * for the simple (non-concurrent, no-blockwise) case our smoke test hits.
+ */
+PGDLLEXPORT double shim_index_build_range_scan(
+    Relation heap, Relation index, IndexInfo *info,
+    bool allow_sync, bool anyvisible, bool progress,
+    BlockNumber start_blockno, BlockNumber numblocks,
+    IndexBuildCallback cb, void *state, TableScanDesc scan);
+
+double shim_index_build_range_scan(
+    Relation heap, Relation index, IndexInfo *info,
+    bool allow_sync, bool anyvisible, bool progress,
+    BlockNumber start_blockno, BlockNumber numblocks,
+    IndexBuildCallback cb, void *state, TableScanDesc scan)
+{
+    bool need_unregister = false;
+    Snapshot snapshot;
+
+    if (scan == NULL) {
+        snapshot = RegisterSnapshot(GetTransactionSnapshot());
+        need_unregister = true;
+        scan = table_beginscan_strat(heap, snapshot, 0, NULL, true, allow_sync);
+    } else {
+        snapshot = scan->rs_snapshot;
+    }
+
+    EState *estate = CreateExecutorState();
+    ExprContext *econtext = GetPerTupleExprContext(estate);
+    TupleTableSlot *slot = table_slot_create(heap, NULL);
+    econtext->ecxt_scantuple = slot;
+
+    Datum values[INDEX_MAX_KEYS];
+    bool  isnull[INDEX_MAX_KEYS];
+    double n = 0;
+
+    while (table_scan_getnextslot(scan, ForwardScanDirection, slot)) {
+        ResetPerTupleExprContext(estate);
+        FormIndexDatum(info, slot, estate, values, isnull);
+        cb(index, &slot->tts_tid, values, isnull, true, state);
+        n++;
+    }
+
+    table_endscan(scan);
+    if (need_unregister) UnregisterSnapshot(snapshot);
+    ExecDropSingleTupleTableSlot(slot);
+    FreeExecutorState(estate);
+    return n;
+}

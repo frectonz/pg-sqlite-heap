@@ -132,8 +132,17 @@ declare void @abort()
 @SQL_SEL_ON = private unnamed_addr constant [43 x i8] c"SELECT tuple FROM storage WHERE rowid = ?1\00"
 @SQL_DELETE = private unnamed_addr constant [37 x i8] c"DELETE FROM storage WHERE rowid = ?1\00"
 @SQL_UPDATE = private unnamed_addr constant [47 x i8] c"UPDATE storage SET tuple = ?1 WHERE rowid = ?2\00"
-@SQL_PRAGMA = private unnamed_addr constant [21 x i8] c"PRAGMA synchronous=1\00"
+; PRAGMAs match the Rust/Zig impls: synchronous=FULL for crash durability and
+; WAL for concurrent readers/writers + faster commits.
+; AUTOINCREMENT is load-bearing: without it, SQLite reuses rowid values after
+; DELETE, but Postgres still has the *old* index entry for that TID, so a new
+; INSERT producing the same rowid leaves the b-tree with duplicate TIDs and
+; the dedup assertion `_bt_posting_valid` fails.
+@SQL_PRAGMA = private unnamed_addr constant [211 x i8] c"PRAGMA synchronous=FULL;PRAGMA cache_size=-8192;PRAGMA temp_store=MEMORY;PRAGMA busy_timeout=5000;PRAGMA journal_mode=WAL;CREATE TABLE IF NOT EXISTS storage(rowid INTEGER PRIMARY KEY AUTOINCREMENT, tuple BLOB);\00"
 @SQL_TRUNC  = private unnamed_addr constant [21 x i8] c"DELETE FROM storage;\00"
+@SQL_BEGIN  = private unnamed_addr constant [6 x i8] c"BEGIN\00"
+@SQL_COMMIT = private unnamed_addr constant [7 x i8] c"COMMIT\00"
+@SQL_ROLLBACK = private unnamed_addr constant [9 x i8] c"ROLLBACK\00"
 
 ; ===========================================================================
 ; Helper: finalize-and-null a thread-local prepared statement.
@@ -165,6 +174,8 @@ close:
   %rc = call i32 @sqlite3_close(ptr %db)
   store ptr null, ptr @cur_db
   store i32 0, ptr @cur_rel_oid
+  ; whatever BEGIN we had open is gone with the connection.
+  store i8 0, ptr @xact_open
   br label %done
 done:
   ret void
@@ -214,10 +225,82 @@ schema:
   %db = load ptr, ptr %db_slot
   store ptr %db, ptr @cur_db
   store i32 %rel_oid, ptr @cur_rel_oid
-  ; PRAGMA synchronous=NORMAL — fine for a stunt; we're not crash-durable anyway.
+  ; One exec runs every PRAGMA we need + ensures schema. journal_mode=WAL has
+  ; to happen here, before any transaction is open.
   %rc1 = call i32 @sqlite3_exec(ptr %db, ptr @SQL_PRAGMA, ptr null, ptr null, ptr null)
-  %rc2 = call i32 @sqlite3_exec(ptr %db, ptr @SQL_CREATE, ptr null, ptr null, ptr null)
   ret ptr %db
+}
+
+; ===========================================================================
+; Transaction tracking — mirror the Rust/Zig impls:
+;   * Lazily BEGIN on first write.
+;   * Register a Postgres xact callback the first time we touch SQLite in any
+;     backend. PRE_COMMIT → COMMIT SQLite (so Postgres won't say "committed"
+;     unless SQLite already did). ABORT → ROLLBACK.
+; ===========================================================================
+
+@xact_open          = thread_local global i8 0
+@xact_cb_registered = thread_local global i8 0
+
+declare void @RegisterXactCallback(ptr, ptr)
+
+define dso_local void @ll_on_xact_event(i32 %event, ptr %arg) {
+entry:
+  %open = load i8, ptr @xact_open
+  %is_open = icmp ne i8 %open, 0
+  br i1 %is_open, label %dispatch, label %done
+
+dispatch:
+  ; XACT_EVENT_PRE_COMMIT = 5, XACT_EVENT_ABORT = 2
+  %is_precommit = icmp eq i32 %event, 5
+  br i1 %is_precommit, label %do_commit, label %check_abort
+
+do_commit:
+  %db1 = load ptr, ptr @cur_db
+  %is_null1 = icmp eq ptr %db1, null
+  br i1 %is_null1, label %clear, label %commit
+commit:
+  %rc1 = call i32 @sqlite3_exec(ptr %db1, ptr @SQL_COMMIT, ptr null, ptr null, ptr null)
+  br label %clear
+
+check_abort:
+  %is_abort = icmp eq i32 %event, 2
+  br i1 %is_abort, label %do_rollback, label %done
+do_rollback:
+  %db2 = load ptr, ptr @cur_db
+  %is_null2 = icmp eq ptr %db2, null
+  br i1 %is_null2, label %clear, label %rollback
+rollback:
+  %rc2 = call i32 @sqlite3_exec(ptr %db2, ptr @SQL_ROLLBACK, ptr null, ptr null, ptr null)
+  br label %clear
+
+clear:
+  store i8 0, ptr @xact_open
+  br label %done
+
+done:
+  ret void
+}
+
+define internal void @ensure_xact(ptr %db) {
+entry:
+  %reg = load i8, ptr @xact_cb_registered
+  %need_reg = icmp eq i8 %reg, 0
+  br i1 %need_reg, label %do_reg, label %check_begin
+do_reg:
+  call void @RegisterXactCallback(ptr @ll_on_xact_event, ptr null)
+  store i8 1, ptr @xact_cb_registered
+  br label %check_begin
+check_begin:
+  %open = load i8, ptr @xact_open
+  %need_begin = icmp eq i8 %open, 0
+  br i1 %need_begin, label %do_begin, label %done
+do_begin:
+  %rc = call i32 @sqlite3_exec(ptr %db, ptr @SQL_BEGIN, ptr null, ptr null, ptr null)
+  store i8 1, ptr @xact_open
+  br label %done
+done:
+  ret void
 }
 
 ; ===========================================================================
@@ -257,6 +340,7 @@ define dso_local void @ll_tuple_insert(ptr %rel, ptr %slot, i32 %cid,
                                        i32 %options, ptr %bistate) {
   %rel_oid = call i32 @shim_rel_oid(ptr %rel)
   %db      = call ptr @ensure_conn(i32 %rel_oid)
+  call void @ensure_xact(ptr %db)
   %stmt    = call ptr @prep_cached(ptr %db, ptr @stmt_insert, ptr @SQL_INSERT)
 
   %tup     = call ptr @shim_slot_copy_heap_tuple(ptr %slot)
@@ -289,6 +373,7 @@ define dso_local i32 @ll_tuple_delete(ptr %rel, ptr %tid, i32 %cid,
                                       ptr %tmfd, i8 %changingPart) {
   %rel_oid = call i32 @shim_rel_oid(ptr %rel)
   %db      = call ptr @ensure_conn(i32 %rel_oid)
+  call void @ensure_xact(ptr %db)
   %stmt    = call ptr @prep_cached(ptr %db, ptr @stmt_delete, ptr @SQL_DELETE)
   %rowid   = call i64 @shim_tid_to_rowid(ptr %tid)
   %brc     = call i32 @sqlite3_bind_int64(ptr %stmt, i32 1, i64 %rowid)
@@ -314,6 +399,7 @@ define dso_local i32 @ll_tuple_update(ptr %rel, ptr %otid, ptr %slot,
                                       ptr %update_indexes) {
   %rel_oid = call i32 @shim_rel_oid(ptr %rel)
   %db      = call ptr @ensure_conn(i32 %rel_oid)
+  call void @ensure_xact(ptr %db)
   %stmt    = call ptr @prep_cached(ptr %db, ptr @stmt_update, ptr @SQL_UPDATE)
 
   %tup     = call ptr @shim_slot_copy_heap_tuple(ptr %slot)
@@ -528,6 +614,7 @@ open:
 define dso_local void @ll_relation_nontransactional_truncate(ptr %rel) {
   %rel_oid = call i32 @shim_rel_oid(ptr %rel)
   %db      = call ptr @ensure_conn(i32 %rel_oid)
+  call void @ensure_xact(ptr %db)
   %rc      = call i32 @sqlite3_exec(ptr %db, ptr @SQL_TRUNC, ptr null, ptr null, ptr null)
   ret void
 }
@@ -581,11 +668,13 @@ define dso_local void @ll_relation_estimate_size(ptr %rel, ptr %attr_widths,
 ; Postgres calls this once and we walk the heap with our seqscan path,
 ; invoking the callback for each visible tuple.
 ;
-; This is the most painful single callback to write in IR because the index
-; tuple machinery (FormIndexDatum, slot init) is verbose. For this stunt we
-; stub it — Postgres prints an error if CREATE INDEX is attempted but the
-; rest of the AM works fine.
+; Calls into the C shim because the index plumbing (FormIndexDatum, EState,
+; snapshot registration) is pure orchestration over Postgres APIs — no SQLite
+; work happens here directly. The heap walk underneath still goes through our
+; IR scan callbacks via Postgres's TAM dispatch.
 ; ===========================================================================
+declare double @shim_index_build_range_scan(ptr, ptr, ptr, i8, i8, i8,
+                                            i32, i32, ptr, ptr, ptr)
 define dso_local double @ll_index_build_range_scan(ptr %heap, ptr %index,
                                                    ptr %info, i8 %allow_sync,
                                                    i8 %anyvisible, i8 %progress,
@@ -593,7 +682,12 @@ define dso_local double @ll_index_build_range_scan(ptr %heap, ptr %index,
                                                    i32 %numblocks,
                                                    ptr %callback, ptr %state,
                                                    ptr %scan) {
-  ret double 0.0
+  %n = call double @shim_index_build_range_scan(ptr %heap, ptr %index, ptr %info,
+                                                i8 %allow_sync, i8 %anyvisible,
+                                                i8 %progress, i32 %start_blockno,
+                                                i32 %numblocks, ptr %callback,
+                                                ptr %state, ptr %scan)
+  ret double %n
 }
 
 ; ===========================================================================
