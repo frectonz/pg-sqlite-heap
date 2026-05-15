@@ -388,8 +388,8 @@ are not in Postgres's heap. They are in a SQLite file:</p>
        sqlite_heap_schema_version('demo'::regclass) AS schema_v;</code></pre>
 <p class="sqlcap">Result</p>
 <pre class="out"><code>                      path                       | bytes | schema_v
---------------------------------------------------+-------+----------
- $PGDATA/sqlite_heap/&lt;db-oid&gt;/&lt;table-oid&gt;.sqlite   |  4096 |        4</code></pre>
+-------------------------------------------------+-------+----------
+ $PGDATA/sqlite_heap/&lt;db-oid&gt;/&lt;table-oid&gt;.sqlite |  4096 |        4</code></pre>
 <p>One SQLite database file per Postgres table.</p>
 
 <h3>The reveal &mdash; MVCC bookkeeping Postgres hides</h3>
