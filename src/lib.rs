@@ -8,6 +8,7 @@ use pgrx::prelude::*;
 
 mod fxhash;
 mod ffi;
+mod raw_pg;
 mod sqlite;
 mod tam;
 mod visibility;
@@ -21,7 +22,6 @@ pub extern "C" fn pg_finfo_sqlite_heap_handler() -> &'static pg_sys::Pg_finfo_re
     &V1
 }
 
-#[pg_guard]
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn sqlite_heap_handler(
     _fcinfo: pg_sys::FunctionCallInfo,

@@ -218,11 +218,16 @@ fn read_user_version(conn: &RelConn) -> i32 {
     let stmt = conn.prepare_cached("PRAGMA user_version");
     unsafe {
         let rc = sqlite::sqlite3_step(stmt);
-        if rc == sqlite::SQLITE_ROW {
+        let v = if rc == sqlite::SQLITE_ROW {
             sqlite::sqlite3_column_int(stmt, 0)
         } else {
             0
-        }
+        };
+        // Reset so the statement isn't left mid-iteration — `PRAGMA
+        // journal_mode=WAL` (run next in install_schema) refuses to switch
+        // modes while any reader is active.
+        sqlite::sqlite3_reset(stmt);
+        v
     }
 }
 

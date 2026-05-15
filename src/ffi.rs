@@ -1,4 +1,5 @@
 use pgrx::pg_sys;
+use crate::raw_pg;
 
 /// Borrowed view of a Postgres `RelationData`.
 #[derive(Copy, Clone)]
@@ -44,19 +45,19 @@ impl<'a> Slot<'a> {
     }
 
     pub fn clear(&mut self) {
-        unsafe { pg_sys::ExecClearTuple(self.0) };
+        unsafe { raw_pg::ExecClearTuple(self.0) };
     }
 
     /// Materialize the slot's current contents as an owned palloc'd tuple.
     /// The returned `OwnedHeapTuple` frees itself on drop.
     pub fn copy_heap_tuple(&mut self) -> OwnedHeapTuple {
-        OwnedHeapTuple(unsafe { pg_sys::ExecCopySlotHeapTuple(self.0) })
+        OwnedHeapTuple(unsafe { raw_pg::ExecCopySlotHeapTuple(self.0) })
     }
 
     /// Store a `StoredRow` into the slot.
     pub fn store_row(&mut self, rel: &Rel<'_>, row: &crate::sqlite::StoredRow) {
         let tup = build_heap_tuple_from_parts(rel, &row.header, &row.tuple);
-        unsafe { pg_sys::ExecStoreHeapTuple(tup, self.0, true) };
+        unsafe { raw_pg::ExecStoreHeapTuple(tup, self.0, true) };
     }
 
     /// Store a row from a header + borrowed tuple bytes — the single-copy
@@ -68,7 +69,7 @@ impl<'a> Slot<'a> {
         bytes: &[u8],
     ) {
         let tup = build_heap_tuple_from_parts(rel, header, bytes);
-        unsafe { pg_sys::ExecStoreHeapTuple(tup, self.0, true) };
+        unsafe { raw_pg::ExecStoreHeapTuple(tup, self.0, true) };
     }
 
     /// Stamp `tts_tableOid` + `tts_tid` after a successful insert/update.
@@ -104,7 +105,7 @@ impl std::ops::Deref for OwnedHeapTuple {
 
 impl Drop for OwnedHeapTuple {
     fn drop(&mut self) {
-        unsafe { pg_sys::heap_freetuple(self.0) };
+        unsafe { raw_pg::heap_freetuple(self.0) };
     }
 }
 
@@ -142,7 +143,7 @@ const HEAPTUPLESIZE: usize =
 fn build_heap_tuple(rel: &Rel<'_>, rowid: i64, bytes: &[u8]) -> pg_sys::HeapTuple {
     let len = bytes.len();
     unsafe {
-        let raw = pg_sys::palloc(HEAPTUPLESIZE + len) as *mut u8;
+        let raw = raw_pg::palloc(HEAPTUPLESIZE + len) as *mut u8;
         let tup = raw as *mut pg_sys::HeapTupleData;
         let data = raw.add(HEAPTUPLESIZE);
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), data, len);

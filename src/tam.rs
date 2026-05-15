@@ -2,7 +2,7 @@
 //! the routine table itself. Each callback wraps the raw pointers Postgres
 //! hands it in `ffi::Rel` / `ffi::Slot` and delegates to a safe inner fn.
 
-use crate::{ffi, sqlite, visibility};
+use crate::{ffi, raw_pg, sqlite, visibility};
 use pgrx::pg_sys;
 use pgrx::prelude::*;
 use std::sync::OnceLock;
@@ -99,19 +99,16 @@ impl SqliteScanState {
 
 // --- TAM callbacks ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn slot_callbacks(
     _rel: pg_sys::Relation,
 ) -> *const pg_sys::TupleTableSlotOps {
     &raw const pg_sys::TTSOpsHeapTuple
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn parallelscan_estimate(rel: pg_sys::Relation) -> pg_sys::Size {
     unsafe { pg_sys::table_block_parallelscan_estimate(rel) }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn parallelscan_initialize(
     rel: pg_sys::Relation,
     pscan: pg_sys::ParallelTableScanDesc,
@@ -119,7 +116,6 @@ unsafe extern "C-unwind" fn parallelscan_initialize(
     unsafe { pg_sys::table_block_parallelscan_initialize(rel, pscan) }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn parallelscan_reinitialize(
     rel: pg_sys::Relation,
     pscan: pg_sys::ParallelTableScanDesc,
@@ -129,7 +125,6 @@ unsafe extern "C-unwind" fn parallelscan_reinitialize(
 
 // --- Sequential scan ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_begin(
     rel: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
@@ -142,12 +137,10 @@ unsafe extern "C-unwind" fn scan_begin(
     SqliteScanState::alloc(&rel, snapshot, nkeys, key, pscan, flags) as pg_sys::TableScanDesc
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_end(scan: pg_sys::TableScanDesc) {
     unsafe { SqliteScanState::free(scan) };
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_rescan(
     scan: pg_sys::TableScanDesc,
     _key: *mut pg_sys::ScanKeyData,
@@ -161,7 +154,6 @@ unsafe extern "C-unwind" fn scan_rescan(
     cursor.pos = 0;
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     _direction: pg_sys::ScanDirection::Type,
@@ -193,7 +185,6 @@ fn do_scan_getnext(
     false
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_set_tidrange(
     scan: pg_sys::TableScanDesc,
     mintid: pg_sys::ItemPointer,
@@ -209,7 +200,6 @@ unsafe extern "C-unwind" fn scan_set_tidrange(
     cursor.pos = 0;
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_getnextslot_tidrange(
     scan: pg_sys::TableScanDesc,
     _direction: pg_sys::ScanDirection::Type,
@@ -240,7 +230,6 @@ unsafe extern "C-unwind" fn scan_getnextslot_tidrange(
 
 // --- Index access ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_fetch_begin(
     rel: pg_sys::Relation,
 ) -> *mut pg_sys::IndexFetchTableData {
@@ -252,15 +241,12 @@ unsafe extern "C-unwind" fn index_fetch_begin(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_fetch_end(data: *mut pg_sys::IndexFetchTableData) {
     unsafe { pg_sys::pfree(data as *mut _) }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_fetch_tuple(
     scan: *mut pg_sys::IndexFetchTableData,
     tid: pg_sys::ItemPointer,
@@ -300,7 +286,6 @@ fn fetch_one_into_slot(
 
 // --- Tuple lifecycle ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_fetch_row_version(
     rel: pg_sys::Relation,
     tid: pg_sys::ItemPointer,
@@ -313,7 +298,6 @@ unsafe extern "C-unwind" fn tuple_fetch_row_version(
     fetch_one_into_slot(&rel, rowid, snapshot, &mut slot)
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_tid_valid(
     scan: pg_sys::TableScanDesc,
     tid: pg_sys::ItemPointer,
@@ -323,14 +307,12 @@ unsafe extern "C-unwind" fn tuple_tid_valid(
     sqlite::select_one(state.rel().oid_u32(), rowid).is_some()
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_satisfies_snapshot(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
@@ -346,7 +328,6 @@ unsafe extern "C-unwind" fn tuple_satisfies_snapshot(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_delete_tuples(
     rel: pg_sys::Relation,
     delstate: *mut pg_sys::TM_IndexDeleteOp,
@@ -367,7 +348,7 @@ unsafe extern "C-unwind" fn index_delete_tuples(
 
     // A row version is reclaimable iff its `xmax` is committed and older than
     // every still-running snapshot — the same bar as VACUUM.
-    let oldest = unsafe { pg_sys::GetOldestNonRemovableTransactionId(rel.as_ptr()) };
+    let oldest = unsafe { raw_pg::GetOldestNonRemovableTransactionId(rel.as_ptr()) };
     let mut latest_removed = pg_sys::TransactionId::INVALID;
     let mut any_deletable = false;
 
@@ -388,7 +369,7 @@ unsafe extern "C-unwind" fn index_delete_tuples(
             Some(xmax) => {
                 let xmax_t = pg_sys::TransactionId::from(xmax);
                 let committed = visibility::did_commit(xmax);
-                let old = unsafe { pg_sys::TransactionIdPrecedes(xmax_t, oldest) };
+                let old = unsafe { raw_pg::TransactionIdPrecedes(xmax_t, oldest) };
                 committed && old
             }
         };
@@ -398,7 +379,7 @@ unsafe extern "C-unwind" fn index_delete_tuples(
             // Track the newest reclaimed xid for the recovery-conflict horizon.
             if let Some(xmax) = xmax {
                 let xmax_t = pg_sys::TransactionId::from(xmax);
-                if xmax != 0 && unsafe { pg_sys::TransactionIdFollows(xmax_t, latest_removed) } {
+                if xmax != 0 && unsafe { raw_pg::TransactionIdFollows(xmax_t, latest_removed) } {
                     latest_removed = xmax_t;
                 }
             }
@@ -413,7 +394,6 @@ unsafe extern "C-unwind" fn index_delete_tuples(
     latest_removed
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_insert(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
@@ -434,10 +414,9 @@ fn do_tuple_insert(rel: &ffi::Rel<'_>, slot: &mut ffi::Slot<'_>, cid: pg_sys::Co
 }
 
 fn current_xid_u32() -> u32 {
-    u32::from(unsafe { pg_sys::GetCurrentTransactionId() })
+    u32::from(unsafe { raw_pg::GetCurrentTransactionId() })
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_insert_speculative(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
@@ -453,7 +432,6 @@ unsafe extern "C-unwind" fn tuple_insert_speculative(
     do_tuple_insert(&rel, &mut slot, cid);
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_complete_speculative(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
@@ -469,7 +447,6 @@ unsafe extern "C-unwind" fn tuple_complete_speculative(
     sqlite::physical_delete(rel.oid_u32(), rowid);
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn multi_insert(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
@@ -501,7 +478,6 @@ unsafe extern "C-unwind" fn multi_insert(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_delete(
     rel: pg_sys::Relation,
     tid: pg_sys::ItemPointer,
@@ -522,7 +498,6 @@ unsafe extern "C-unwind" fn tuple_delete(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_update(
     rel: pg_sys::Relation,
     otid: pg_sys::ItemPointer,
@@ -552,7 +527,6 @@ unsafe extern "C-unwind" fn tuple_update(
     pg_sys::TM_Result::TM_Ok
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn tuple_lock(
     rel: pg_sys::Relation,
     tid: pg_sys::ItemPointer,
@@ -576,7 +550,6 @@ unsafe extern "C-unwind" fn tuple_lock(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn finish_bulk_insert(
     _rel: pg_sys::Relation,
     _options: ::core::ffi::c_int,
@@ -585,7 +558,6 @@ unsafe extern "C-unwind" fn finish_bulk_insert(
 
 // --- Relation lifecycle ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_set_new_filelocator(
     rel: pg_sys::Relation,
     _newrlocator: *const pg_sys::RelFileLocator,
@@ -597,14 +569,12 @@ unsafe extern "C-unwind" fn relation_set_new_filelocator(
     sqlite::reset(rel.oid_u32());
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_nontransactional_truncate(rel: pg_sys::Relation) {
     // The fast TRUNCATE path (table created in this same transaction).
     let rel = unsafe { ffi::Rel::from_raw(rel) };
     sqlite::reset(rel.oid_u32());
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_copy_data(
     _rel: pg_sys::Relation,
     _newrlocator: *const pg_sys::RelFileLocator,
@@ -613,7 +583,6 @@ unsafe extern "C-unwind" fn relation_copy_data(
     // across the move), so the data stays put — nothing to do here.
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_copy_for_cluster(
     old_table: pg_sys::Relation,
     new_table: pg_sys::Relation,
@@ -631,7 +600,7 @@ unsafe extern "C-unwind" fn relation_copy_for_cluster(
     let old = unsafe { ffi::Rel::from_raw(old_table) };
     let new = unsafe { ffi::Rel::from_raw(new_table) };
     let xid = current_xid_u32();
-    let cid: pg_sys::CommandId = unsafe { pg_sys::GetCurrentCommandId(true) };
+    let cid: pg_sys::CommandId = unsafe { raw_pg::GetCurrentCommandId(true) };
 
     let rows = sqlite::select_all(old.oid_u32());
     let mut live = 0.0f64;
@@ -651,7 +620,6 @@ unsafe extern "C-unwind" fn relation_copy_for_cluster(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_vacuum(
     rel: pg_sys::Relation,
     _params: *mut pg_sys::VacuumParams,
@@ -659,11 +627,10 @@ unsafe extern "C-unwind" fn relation_vacuum(
 ) {
     let rel = unsafe { ffi::Rel::from_raw(rel) };
     let oldest =
-        u32::from(unsafe { pg_sys::GetOldestNonRemovableTransactionId(rel.as_ptr()) });
+        u32::from(unsafe { raw_pg::GetOldestNonRemovableTransactionId(rel.as_ptr()) });
     sqlite::vacuum_dead(rel.oid_u32(), oldest);
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_analyze_next_block(
     scan: pg_sys::TableScanDesc,
     stream: *mut pg_sys::ReadStream,
@@ -675,7 +642,7 @@ unsafe extern "C-unwind" fn scan_analyze_next_block(
     // `strategy` is an out-parameter: it must point at a real slot, not null
     // (passing null segfaults).
     let mut strategy: pg_sys::BufferAccessStrategy = std::ptr::null_mut();
-    let blk = unsafe { pg_sys::read_stream_next_block(stream, &mut strategy) };
+    let blk = unsafe { raw_pg::read_stream_next_block(stream, &mut strategy) };
     if blk == pg_sys::InvalidBlockNumber {
         return false;
     }
@@ -685,7 +652,6 @@ unsafe extern "C-unwind" fn scan_analyze_next_block(
     true
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_analyze_next_tuple(
     scan: pg_sys::TableScanDesc,
     _oldest_xmin: pg_sys::TransactionId,
@@ -713,7 +679,6 @@ unsafe extern "C-unwind" fn scan_analyze_next_tuple(
 
 // --- Index build ---
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_build_range_scan(
     table_rel: pg_sys::Relation,
     index_rel: pg_sys::Relation,
@@ -802,7 +767,6 @@ fn build_index(
     reltuples
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn index_validate_scan(
     _table_rel: pg_sys::Relation,
     _index_rel: pg_sys::Relation,
@@ -815,7 +779,6 @@ unsafe extern "C-unwind" fn index_validate_scan(
     // REINDEX CONCURRENTLY may miss rows committed mid-build.)
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_size(
     _rel: pg_sys::Relation,
     fork: pg_sys::ForkNumber::Type,
@@ -830,17 +793,14 @@ unsafe extern "C-unwind" fn relation_size(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_needs_toast_table(_rel: pg_sys::Relation) -> bool {
     false
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_toast_am(_rel: pg_sys::Relation) -> pg_sys::Oid {
     pg_sys::Oid::INVALID
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_fetch_toast_slice(
     _toastrel: pg_sys::Relation,
     _valueid: pg_sys::Oid,
@@ -851,7 +811,6 @@ unsafe extern "C-unwind" fn relation_fetch_toast_slice(
 ) {
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn relation_estimate_size(
     rel: pg_sys::Relation,
     _attr_widths: *mut i32,
@@ -871,7 +830,6 @@ unsafe extern "C-unwind" fn relation_estimate_size(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_bitmap_next_tuple(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
@@ -948,7 +906,6 @@ unsafe extern "C-unwind" fn scan_bitmap_next_tuple(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_sample_next_block(
     scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,
@@ -965,7 +922,6 @@ unsafe extern "C-unwind" fn scan_sample_next_block(
     }
 }
 
-#[pg_guard]
 unsafe extern "C-unwind" fn scan_sample_next_tuple(
     scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,

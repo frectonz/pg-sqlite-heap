@@ -1,3 +1,4 @@
+use crate::raw_pg;
 use crate::sqlite::StoredHeader;
 use pgrx::pg_sys;
 
@@ -7,7 +8,7 @@ pub(crate) fn did_commit(xid: u32) -> bool {
     if xid == 0 {
         return false;
     }
-    unsafe { pg_sys::TransactionIdDidCommit(pg_sys::TransactionId::from(xid)) }
+    unsafe { raw_pg::TransactionIdDidCommit(pg_sys::TransactionId::from(xid)) }
 }
 
 /// Three-valued visibility verdict for an xid relative to a snapshot.
@@ -62,7 +63,7 @@ fn visible_mvcc(row: &StoredHeader, snapshot: pg_sys::Snapshot) -> bool {
 /// finished xact has deleted it.
 fn visible_self(row: &StoredHeader) -> bool {
     let xmin = pg_sys::TransactionId::from(row.xmin);
-    let inserted_by_me = unsafe { pg_sys::TransactionIdIsCurrentTransactionId(xmin) };
+    let inserted_by_me = unsafe { raw_pg::TransactionIdIsCurrentTransactionId(xmin) };
     if !inserted_by_me && !did_commit(row.xmin) {
         return false;
     }
@@ -70,7 +71,7 @@ fn visible_self(row: &StoredHeader) -> bool {
         return true;
     }
     let xmax = pg_sys::TransactionId::from(row.xmax);
-    let deleted_by_me = unsafe { pg_sys::TransactionIdIsCurrentTransactionId(xmax) };
+    let deleted_by_me = unsafe { raw_pg::TransactionIdIsCurrentTransactionId(xmax) };
     !(deleted_by_me || did_commit(row.xmax))
 }
 
@@ -87,9 +88,9 @@ fn visible_dirty(row: &StoredHeader, snapshot: pg_sys::Snapshot) -> bool {
     }
 
     let xmin = pg_sys::TransactionId::from(row.xmin);
-    if unsafe { pg_sys::TransactionIdIsCurrentTransactionId(xmin) } {
+    if unsafe { raw_pg::TransactionIdIsCurrentTransactionId(xmin) } {
         // Inserted by us — fall through to xmax handling.
-    } else if unsafe { pg_sys::TransactionIdIsInProgress(xmin) } {
+    } else if unsafe { raw_pg::TransactionIdIsInProgress(xmin) } {
         unsafe { (*snapshot).xmin = xmin };
         // Still considered visible to a dirty snapshot.
     } else if !did_commit(row.xmin) {
@@ -100,10 +101,10 @@ fn visible_dirty(row: &StoredHeader, snapshot: pg_sys::Snapshot) -> bool {
         return true;
     }
     let xmax = pg_sys::TransactionId::from(row.xmax);
-    if unsafe { pg_sys::TransactionIdIsCurrentTransactionId(xmax) } {
+    if unsafe { raw_pg::TransactionIdIsCurrentTransactionId(xmax) } {
         return false; // we already deleted it ourselves
     }
-    if unsafe { pg_sys::TransactionIdIsInProgress(xmax) } {
+    if unsafe { raw_pg::TransactionIdIsInProgress(xmax) } {
         unsafe { (*snapshot).xmax = xmax };
         return true; // deleter not committed yet
     }
@@ -123,17 +124,17 @@ fn visible_non_vacuumable(row: &StoredHeader) -> bool {
 
 fn xid_view(xid: u32, snapshot: pg_sys::Snapshot) -> XidView {
     let xid_t = pg_sys::TransactionId::from(xid);
-    if unsafe { pg_sys::TransactionIdIsCurrentTransactionId(xid_t) } {
+    if unsafe { raw_pg::TransactionIdIsCurrentTransactionId(xid_t) } {
         return XidView::OurOwnXact;
     }
     if !did_commit(xid) {
         return XidView::NotVisible;
     }
     let snap = unsafe { &*snapshot };
-    if unsafe { pg_sys::TransactionIdPrecedes(xid_t, snap.xmin) } {
+    if unsafe { raw_pg::TransactionIdPrecedes(xid_t, snap.xmin) } {
         return XidView::CommittedAndVisible;
     }
-    if !unsafe { pg_sys::TransactionIdPrecedes(xid_t, snap.xmax) } {
+    if !unsafe { raw_pg::TransactionIdPrecedes(xid_t, snap.xmax) } {
         return XidView::NotVisible;
     }
     for i in 0..snap.xcnt as usize {
