@@ -1,0 +1,6 @@
+comment = 'pg_sqlite_heap_zig: a SQLite-backed table access method, written in Zig'
+default_version = '0.0.0'
+module_pathname = '$libdir/pg_sqlite_heap_zig'
+relocatable = false
+superuser = true
+trusted = false

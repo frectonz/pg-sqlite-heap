@@ -9,3 +9,9 @@ tests/pg_regress/regression.out
 
 vendor
 .direnv
+
+# Zig implementation build artifacts
+zig/.zig-cache
+zig/zig-out
+zig/build.err
+zig/build.log

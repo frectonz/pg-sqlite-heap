@@ -49,6 +49,18 @@
             # `sqlite3` CLI: `tests/concurrency.sh` runs `PRAGMA
             # integrity_check` directly against the backing SQLite files.
             pkgs.sqlite
+
+            # The Zig re-implementation lives in `zig/`. `zig build` drives it
+            # (shelling out to `pg_config`), `zls` is the editor language
+            # server, and `pkg-config` lets `build.zig` discover SQLite.
+            pkgs.zig
+            pkgs.zls
+            pkgs.pkg-config
+
+            # pgcli: a friendlier psql with autocomplete and syntax highlighting
+            # (https://github.com/dbcli/pgcli). `PSQL=pgcli zig/run.sh` swaps it
+            # in as the client.
+            pkgs.pgcli
           ];
 
           inputsFrom = with pkgs; [
