@@ -4,26 +4,20 @@ use pgrx::{
     PgXactCallbackEvent,
 };
 use crate::fxhash::{FxHashMap, FxHashSet};
-use rusqlite::{params, Connection};
+use libsqlite3_sys as sqlite;
 use std::cell::{Cell, RefCell};
+use std::ffi::{CStr, CString};
+use std::os::raw::{c_char, c_int, c_void};
 use std::path::PathBuf;
+use std::ptr;
 
-/// `.unwrap()` for `rusqlite::Result`: panics with the SQLite error message.
-/// The panic unwinds (running `RefCell` guard destructors) and `#[pg_guard]`
-/// turns it into a Postgres ERROR — deliberately not a `pgrx::error!` longjmp,
-/// which would skip those destructors and poison `CONNS`.
-trait SqliteResultExt<T> {
-    fn unwrap_sql(self) -> T;
-}
-
-impl<T> SqliteResultExt<T> for rusqlite::Result<T> {
-    #[track_caller]
-    fn unwrap_sql(self) -> T {
-        match self {
-            Ok(v) => v,
-            Err(e) => panic!("sqlite_heap: {e}"),
-        }
-    }
+/// Panic with a SQLite error message. The panic unwinds (running `RefCell`
+/// guard destructors) and `#[pg_guard]` turns it into a Postgres ERROR —
+/// deliberately not a `pgrx::error!` longjmp, which would skip those
+/// destructors and poison `CONNS`.
+#[track_caller]
+fn die(msg: impl AsRef<str>) -> ! {
+    panic!("sqlite_heap: {}", msg.as_ref());
 }
 
 thread_local! {
@@ -37,7 +31,8 @@ thread_local! {
     static SQLITE_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
-/// A SQLite connection plus its lazy-transaction state.
+/// A SQLite connection plus its lazy-transaction state and prepared-statement
+/// cache.
 ///
 /// The SQLite transaction is opened lazily, on the first *write* (`in_txn`
 /// tracks it). A read-only Postgres transaction never opens one: SQLite's
@@ -46,34 +41,108 @@ thread_local! {
 /// Postgres snapshot regardless. The SQLite transaction only ever provides
 /// write atomicity.
 struct RelConn {
-    conn: Connection,
+    db: *mut sqlite::sqlite3,
     in_txn: Cell<bool>,
+    /// Keyed by SQL text content. Callers pass `&'static str` literals so the
+    /// pointers are stable, but content keying lets callers share a statement
+    /// even if the same SQL is written in two places.
+    cache: RefCell<FxHashMap<&'static str, *mut sqlite::sqlite3_stmt>>,
 }
 
 impl RelConn {
-    fn new(conn: Connection) -> Self {
+    fn new(db: *mut sqlite::sqlite3) -> Self {
         RelConn {
-            conn,
+            db,
             in_txn: Cell::new(false),
+            cache: RefCell::new(FxHashMap::default()),
         }
+    }
+
+    fn errmsg(&self) -> String {
+        unsafe {
+            CStr::from_ptr(sqlite::sqlite3_errmsg(self.db))
+                .to_string_lossy()
+                .into_owned()
+        }
+    }
+
+    /// `sqlite3_exec` with no callback — for DDL, BEGIN/COMMIT, PRAGMA, etc.
+    fn exec(&self, sql: &str) {
+        if let Err(e) = self.try_exec(sql) {
+            die(format!("{sql}: {e}"));
+        }
+    }
+
+    fn try_exec(&self, sql: &str) -> Result<(), String> {
+        let c = CString::new(sql).expect("SQL contains NUL byte");
+        unsafe {
+            let mut err: *mut c_char = ptr::null_mut();
+            let rc = sqlite::sqlite3_exec(
+                self.db,
+                c.as_ptr(),
+                None,
+                ptr::null_mut(),
+                &mut err,
+            );
+            if rc == sqlite::SQLITE_OK {
+                return Ok(());
+            }
+            let msg = if err.is_null() {
+                "(no message)".to_string()
+            } else {
+                let s = CStr::from_ptr(err).to_string_lossy().into_owned();
+                sqlite::sqlite3_free(err as *mut c_void);
+                s
+            };
+            Err(msg)
+        }
+    }
+
+    /// Prepare-and-cache a statement keyed by its SQL text. Resets the
+    /// statement and clears its bindings before returning, so callers can
+    /// immediately bind and step.
+    fn prepare_cached(&self, sql: &'static str) -> *mut sqlite::sqlite3_stmt {
+        let mut cache = self.cache.borrow_mut();
+        if let Some(&stmt) = cache.get(sql) {
+            unsafe {
+                sqlite::sqlite3_reset(stmt);
+                sqlite::sqlite3_clear_bindings(stmt);
+            }
+            return stmt;
+        }
+        let mut stmt: *mut sqlite::sqlite3_stmt = ptr::null_mut();
+        let rc = unsafe {
+            sqlite::sqlite3_prepare_v2(
+                self.db,
+                sql.as_ptr() as *const c_char,
+                sql.len() as c_int,
+                &mut stmt,
+                ptr::null_mut(),
+            )
+        };
+        if rc != sqlite::SQLITE_OK {
+            die(format!("prepare failed for `{sql}`: {}", self.errmsg()));
+        }
+        cache.insert(sql, stmt);
+        stmt
     }
 
     /// Open the SQLite transaction lazily — write paths call this, read paths
     /// run under SQLite autocommit.
     fn begin_if_needed(&self) {
         if !self.in_txn.get() {
-            self.conn.execute_batch("BEGIN").unwrap_sql();
+            self.exec("BEGIN");
             self.in_txn.set(true);
         }
     }
 
     /// Runs at Postgres `PreCommit`. A failed commit here must abort the whole
-    /// Postgres transaction — so `unwrap_sql` panics rather than warns.
+    /// Postgres transaction — so we `die` rather than warn.
     fn commit(&self) {
         if !self.in_txn.get() {
             return;
         }
-        self.conn.execute_batch("COMMIT").unwrap_sql();
+        self.exec("COMMIT");
         self.in_txn.set(false);
     }
 
@@ -83,19 +152,27 @@ impl RelConn {
         if !self.in_txn.get() {
             return;
         }
-        if let Err(e) = self.conn.execute_batch("ROLLBACK") {
+        if let Err(e) = self.try_exec("ROLLBACK") {
             pgrx::warning!("sqlite_heap: ROLLBACK failed: {e}");
         }
         self.in_txn.set(false);
     }
 }
 
-impl std::ops::Deref for RelConn {
-    type Target = Connection;
-    fn deref(&self) -> &Connection {
-        &self.conn
+impl Drop for RelConn {
+    fn drop(&mut self) {
+        unsafe {
+            for &stmt in self.cache.borrow().values() {
+                sqlite::sqlite3_finalize(stmt);
+            }
+            sqlite::sqlite3_close(self.db);
+        }
     }
 }
+
+// SAFETY: every connection lives in thread-local storage; we never share them
+// across threads. The raw pointer fields are not `Send`/`Sync` by default,
+// which already enforces this.
 
 /// Run `f` with the sqlite_heap directory `$PGDATA/sqlite_heap/<dbOid>/`,
 /// computed and `create_dir_all`'d once per backend then cached.
@@ -109,7 +186,7 @@ fn with_dir<R>(f: impl FnOnce(&std::path::Path) -> R) -> R {
             let datadir = unsafe {
                 let ptr = pg_sys::DataDir;
                 assert!(!ptr.is_null(), "DataDir not initialised");
-                std::ffi::CStr::from_ptr(ptr)
+                CStr::from_ptr(ptr)
             };
             let db_oid: u32 = unsafe { pg_sys::MyDatabaseId }.to_u32();
             let p = PathBuf::from(std::ffi::OsStr::from_bytes(datadir.to_bytes()))
@@ -134,10 +211,19 @@ pub fn file_path(rel_id: u32) -> PathBuf {
 
 /// The SQLite `PRAGMA user_version` of `rel_id`'s file — our [`SCHEMA_VERSION`].
 pub fn schema_version(rel_id: u32) -> i32 {
-    with_conn(rel_id, |conn| {
-        conn.query_row("PRAGMA user_version", [], |r| r.get(0))
-            .unwrap_or(0)
-    })
+    with_conn(rel_id, |conn| read_user_version(conn))
+}
+
+fn read_user_version(conn: &RelConn) -> i32 {
+    let stmt = conn.prepare_cached("PRAGMA user_version");
+    unsafe {
+        let rc = sqlite::sqlite3_step(stmt);
+        if rc == sqlite::SQLITE_ROW {
+            sqlite::sqlite3_column_int(stmt, 0)
+        } else {
+            0
+        }
+    }
 }
 
 /// Every sqlite_heap file in this database's directory, as `(table_oid, bytes)`.
@@ -170,39 +256,62 @@ pub fn list_files() -> Vec<(u32, u64)> {
 /// Current on-disk schema, written to each file's `PRAGMA user_version`.
 const SCHEMA_VERSION: i32 = 4;
 
-fn open_conn(rel_id: u32) -> Connection {
-    let conn = Connection::open(path_for(rel_id)).unwrap_sql();
+fn open_conn(rel_id: u32) -> RelConn {
+    let path = path_for(rel_id);
+    let path_c = CString::new(path.as_os_str().as_encoded_bytes())
+        .expect("path contains NUL byte");
+    let mut db: *mut sqlite::sqlite3 = ptr::null_mut();
+    let rc = unsafe {
+        sqlite::sqlite3_open_v2(
+            path_c.as_ptr(),
+            &mut db,
+            sqlite::SQLITE_OPEN_READWRITE | sqlite::SQLITE_OPEN_CREATE,
+            ptr::null(),
+        )
+    };
+    if rc != sqlite::SQLITE_OK {
+        let msg = if db.is_null() {
+            "open failed (no handle)".to_string()
+        } else {
+            let m = unsafe {
+                CStr::from_ptr(sqlite::sqlite3_errmsg(db))
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            unsafe { sqlite::sqlite3_close(db); }
+            m
+        };
+        die(format!("open {}: {}", path.display(), msg));
+    }
+    let conn = RelConn::new(db);
 
     // Per-connection PRAGMAs — SQLite resets them to defaults on every open.
     // `synchronous=FULL` is load-bearing: we commit SQLite at Postgres
     // PreCommit, so the SQLite commit must be durable before Postgres's
     // (otherwise an OS crash could leave Postgres committed but SQLite not).
-    conn.execute_batch(
+    conn.exec(
         "PRAGMA synchronous=FULL;\
          PRAGMA cache_size=-8192;\
          PRAGMA temp_store=MEMORY;\
          PRAGMA busy_timeout=5000;",
-    )
-    .unwrap_sql();
+    );
 
-    let current: i32 = conn
-        .query_row("PRAGMA user_version", [], |r| r.get(0))
-        .unwrap_or(0);
+    let current = read_user_version(&conn);
     if current == 0 {
         install_schema(&conn);
     } else if current > SCHEMA_VERSION {
-        panic!(
-            "sqlite_heap: on-disk schema v{current} is newer than supported \
+        die(format!(
+            "on-disk schema v{current} is newer than supported \
              v{SCHEMA_VERSION}; refusing to read"
-        );
+        ));
     } else if current < SCHEMA_VERSION {
         migrate_schema(&conn, current);
     }
     conn
 }
 
-fn install_schema(conn: &Connection) {
-    conn.execute_batch(&format!(
+fn install_schema(conn: &RelConn) {
+    conn.exec(&format!(
         "PRAGMA journal_mode=WAL;\
          CREATE TABLE IF NOT EXISTS storage (\
             rowid INTEGER PRIMARY KEY, \
@@ -217,31 +326,133 @@ fn install_schema(conn: &Connection) {
             value BLOB NOT NULL\
          );\
          PRAGMA user_version = {SCHEMA_VERSION};"
-    ))
-    .unwrap_sql();
+    ));
 }
 
 /// Bring an on-disk file at version `from` up to [`SCHEMA_VERSION`].
-fn migrate_schema(conn: &Connection, from: i32) {
+fn migrate_schema(conn: &RelConn, from: i32) {
     if from < 2 {
-        conn.execute_batch("DROP INDEX IF EXISTS storage_dead;")
-            .unwrap_sql();
+        conn.exec("DROP INDEX IF EXISTS storage_dead;");
     }
     if from == 3 {
-        conn.execute_batch("ALTER TABLE storage DROP COLUMN prev;")
-            .unwrap_sql();
+        conn.exec("ALTER TABLE storage DROP COLUMN prev;");
     }
-    conn.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))
-        .unwrap_sql();
+    conn.exec(&format!("PRAGMA user_version = {SCHEMA_VERSION};"));
 }
+
+// ---- low-level statement helpers ------------------------------------------
+
+#[inline]
+unsafe fn bind_u32(stmt: *mut sqlite::sqlite3_stmt, idx: c_int, v: u32) {
+    // `xmin` etc. are unsigned but fit in i64; bind via `int` (i32) to match
+    // the original rusqlite encoding (and the Zig impl's `@bitCast`).
+    sqlite::sqlite3_bind_int(stmt, idx, v as c_int);
+}
+
+#[inline]
+unsafe fn bind_i64(stmt: *mut sqlite::sqlite3_stmt, idx: c_int, v: i64) {
+    sqlite::sqlite3_bind_int64(stmt, idx, v);
+}
+
+#[inline]
+unsafe fn bind_blob(
+    conn: &RelConn,
+    stmt: *mut sqlite::sqlite3_stmt,
+    idx: c_int,
+    bytes: &[u8],
+) {
+    let rc = sqlite::sqlite3_bind_blob(
+        stmt,
+        idx,
+        bytes.as_ptr() as *const c_void,
+        bytes.len() as c_int,
+        sqlite::SQLITE_TRANSIENT(),
+    );
+    if rc != sqlite::SQLITE_OK {
+        die(format!("bind_blob failed: {}", conn.errmsg()));
+    }
+}
+
+#[inline]
+unsafe fn bind_text(
+    conn: &RelConn,
+    stmt: *mut sqlite::sqlite3_stmt,
+    idx: c_int,
+    s: &str,
+) {
+    let rc = sqlite::sqlite3_bind_text(
+        stmt,
+        idx,
+        s.as_ptr() as *const c_char,
+        s.len() as c_int,
+        sqlite::SQLITE_TRANSIENT(),
+    );
+    if rc != sqlite::SQLITE_OK {
+        die(format!("bind_text failed: {}", conn.errmsg()));
+    }
+}
+
+#[inline]
+unsafe fn step_done(conn: &RelConn, stmt: *mut sqlite::sqlite3_stmt) {
+    if sqlite::sqlite3_step(stmt) != sqlite::SQLITE_DONE {
+        die(format!("step failed: {}", conn.errmsg()));
+    }
+}
+
+#[inline]
+unsafe fn step_row(conn: &RelConn, stmt: *mut sqlite::sqlite3_stmt) -> bool {
+    match sqlite::sqlite3_step(stmt) {
+        sqlite::SQLITE_ROW => true,
+        sqlite::SQLITE_DONE => false,
+        _ => die(format!("step failed: {}", conn.errmsg())),
+    }
+}
+
+#[inline]
+unsafe fn col_blob<'a>(stmt: *mut sqlite::sqlite3_stmt, idx: c_int) -> &'a [u8] {
+    let n = sqlite::sqlite3_column_bytes(stmt, idx);
+    if n <= 0 {
+        return &[];
+    }
+    let p = sqlite::sqlite3_column_blob(stmt, idx) as *const u8;
+    std::slice::from_raw_parts(p, n as usize)
+}
+
+#[inline]
+unsafe fn col_i64(stmt: *mut sqlite::sqlite3_stmt, idx: c_int) -> i64 {
+    sqlite::sqlite3_column_int64(stmt, idx)
+}
+
+#[inline]
+unsafe fn col_u32(stmt: *mut sqlite::sqlite3_stmt, idx: c_int) -> u32 {
+    sqlite::sqlite3_column_int(stmt, idx) as u32
+}
+
+#[inline]
+unsafe fn header_from(stmt: *mut sqlite::sqlite3_stmt) -> StoredHeader {
+    StoredHeader {
+        rowid: col_i64(stmt, 0),
+        xmin: col_u32(stmt, 1),
+        cmin: col_u32(stmt, 2),
+        xmax: col_u32(stmt, 3),
+        cmax: col_u32(stmt, 4),
+    }
+}
+
+// ---- public CRUD ----------------------------------------------------------
 
 /// Read a meta key. None if the key isn't set.
 pub fn meta_get(rel_id: u32, key: &str) -> Option<Vec<u8>> {
     with_conn(rel_id, |conn| {
-        conn.prepare_cached("SELECT value FROM meta WHERE key = ?1")
-            .unwrap_sql()
-            .query_row(params![key], |r| r.get::<_, Vec<u8>>(0))
-            .ok()
+        let stmt = conn.prepare_cached("SELECT value FROM meta WHERE key = ?1");
+        unsafe {
+            bind_text(conn, stmt, 1, key);
+            if !step_row(conn, stmt) {
+                return None;
+            }
+            let blob = col_blob(stmt, 0);
+            Some(blob.to_vec())
+        }
     })
 }
 
@@ -249,13 +460,15 @@ pub fn meta_get(rel_id: u32, key: &str) -> Option<Vec<u8>> {
 pub fn meta_set(rel_id: u32, key: &str, value: &[u8]) {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached(
+        let stmt = conn.prepare_cached(
             "INSERT INTO meta (key, value) VALUES (?1, ?2) \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .unwrap_sql()
-        .execute(params![key, value])
-        .unwrap_sql();
+        );
+        unsafe {
+            bind_text(conn, stmt, 1, key);
+            bind_blob(conn, stmt, 2, value);
+            step_done(conn, stmt);
+        }
     });
 }
 
@@ -263,7 +476,7 @@ pub fn meta_set(rel_id: u32, key: &str, value: &[u8]) {
 pub fn reset(rel_id: u32) {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.execute_batch("DELETE FROM storage;").unwrap_sql();
+        conn.exec("DELETE FROM storage;");
     });
 }
 
@@ -308,7 +521,7 @@ fn ensure_in_xact(rel_id: u32) {
             CONNS.with(|c| {
                 c.borrow_mut()
                     .entry(rel_id)
-                    .or_insert_with(|| RelConn::new(open_conn(rel_id)));
+                    .or_insert_with(|| open_conn(rel_id));
             });
         }
 
@@ -335,7 +548,7 @@ fn run_on_txn_conns(stmt: &str) {
             for rel_id in rels.iter() {
                 if let Some(conn) = c.get(rel_id) {
                     if conn.in_txn.get() {
-                        if let Err(e) = conn.execute_batch(stmt) {
+                        if let Err(e) = conn.try_exec(stmt) {
                             pgrx::warning!("sqlite_heap: `{stmt}` failed: {e}");
                         }
                     }
@@ -356,7 +569,7 @@ fn on_sub_start(my_subid: pg_sys::SubTransactionId, _parent: pg_sys::SubTransact
                 if let Some(conn) = c.get(rel_id) {
                     conn.begin_if_needed();
                     if let Err(e) =
-                        conn.execute_batch(&format!("SAVEPOINT sp_{my_subid};"))
+                        conn.try_exec(&format!("SAVEPOINT sp_{my_subid};"))
                     {
                         pgrx::warning!("sqlite_heap: savepoint failed: {e}");
                     }
@@ -425,28 +638,18 @@ pub struct StoredHeader {
     pub cmax: u32,
 }
 
-impl StoredHeader {
-    /// Decode from a row whose first five columns are
-    /// `rowid, xmin, cmin, xmax, cmax` — the shared row-query layout.
-    fn from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
-        Ok(StoredHeader {
-            rowid: row.get(0)?,
-            xmin: row.get(1)?,
-            cmin: row.get(2)?,
-            xmax: row.get(3)?,
-            cmax: row.get(4)?,
-        })
-    }
-}
-
 pub fn insert(rel_id: u32, xmin: u32, cmin: u32, bytes: &[u8]) -> i64 {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached("INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)")
-            .unwrap_sql()
-            .execute(params![xmin, cmin, bytes])
-            .unwrap_sql();
-        conn.last_insert_rowid()
+        let stmt = conn
+            .prepare_cached("INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)");
+        unsafe {
+            bind_u32(stmt, 1, xmin);
+            bind_u32(stmt, 2, cmin);
+            bind_blob(conn, stmt, 3, bytes);
+            step_done(conn, stmt);
+            sqlite::sqlite3_last_insert_rowid(conn.db)
+        }
     })
 }
 
@@ -455,13 +658,19 @@ pub fn insert(rel_id: u32, xmin: u32, cmin: u32, bytes: &[u8]) -> i64 {
 pub fn insert_batch(rel_id: u32, xmin: u32, cmin: u32, tuples: &[&[u8]]) -> Vec<i64> {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        let mut stmt = conn
-            .prepare_cached("INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)")
-            .unwrap_sql();
+        let stmt = conn
+            .prepare_cached("INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)");
         let mut rowids = Vec::with_capacity(tuples.len());
-        for bytes in tuples {
-            stmt.execute(params![xmin, cmin, bytes]).unwrap_sql();
-            rowids.push(conn.last_insert_rowid());
+        unsafe {
+            // xmin/cmin are constant for the whole batch — bind once.
+            bind_u32(stmt, 1, xmin);
+            bind_u32(stmt, 2, cmin);
+            for bytes in tuples {
+                bind_blob(conn, stmt, 3, bytes);
+                step_done(conn, stmt);
+                rowids.push(sqlite::sqlite3_last_insert_rowid(conn.db));
+                sqlite::sqlite3_reset(stmt);
+            }
         }
         rowids
     })
@@ -471,20 +680,20 @@ pub fn insert_batch(rel_id: u32, xmin: u32, cmin: u32, tuples: &[&[u8]]) -> Vec<
 /// filters them down to what a given snapshot should see.
 pub fn select_all(rel_id: u32) -> Vec<StoredRow> {
     with_conn(rel_id, |conn| {
-        conn.prepare_cached(
-            "SELECT rowid, xmin, cmin, xmax, cmax, tuple \
-             FROM storage ORDER BY rowid",
-        )
-        .unwrap_sql()
-        .query_map([], |row| {
-            Ok(StoredRow {
-                header: StoredHeader::from_row(row)?,
-                tuple: row.get(5)?,
-            })
-        })
-        .unwrap_sql()
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .unwrap_sql()
+        let stmt = conn.prepare_cached(
+            "SELECT rowid, xmin, cmin, xmax, cmax, tuple FROM storage ORDER BY rowid",
+        );
+        let mut out = Vec::new();
+        unsafe {
+            while step_row(conn, stmt) {
+                let blob = col_blob(stmt, 5);
+                out.push(StoredRow {
+                    header: header_from(stmt),
+                    tuple: blob.to_vec(),
+                });
+            }
+        }
+        out
     })
 }
 
@@ -496,8 +705,11 @@ pub fn select_xmax_batch(rel_id: u32, rowids: &[i64]) -> FxHashMap<i64, u32> {
         return FxHashMap::default();
     }
     with_conn(rel_id, |conn| {
-        let mut sql =
-            String::from("SELECT rowid, xmax FROM storage WHERE rowid IN (");
+        // SQL string depends on rowids.len(); we can't share it across batch
+        // sizes via prepare_cached, but `INSERT ... SELECT` and btree-bottom-up
+        // calls hit the same size repeatedly so caching by content is still a
+        // win.
+        let mut sql = String::from("SELECT rowid, xmax FROM storage WHERE rowid IN (");
         for i in 0..rowids.len() {
             if i > 0 {
                 sql.push(',');
@@ -505,17 +717,21 @@ pub fn select_xmax_batch(rel_id: u32, rowids: &[i64]) -> FxHashMap<i64, u32> {
             sql.push('?');
         }
         sql.push(')');
-        let mut stmt = conn.prepare_cached(&sql).unwrap_sql();
+        // Leak the SQL into a 'static so prepare_cached can key on it. The
+        // unique-per-batch-size leak is bounded (at most a few sizes).
+        let sql_static: &'static str = Box::leak(sql.into_boxed_str());
+        let stmt = conn.prepare_cached(sql_static);
         let mut map =
             FxHashMap::with_capacity_and_hasher(rowids.len(), Default::default());
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(rowids), |r| {
-                Ok((r.get::<_, i64>(0)?, r.get::<_, u32>(1)?))
-            })
-            .unwrap_sql();
-        for row in rows {
-            let (rid, xmax) = row.unwrap_sql();
-            map.insert(rid, xmax);
+        unsafe {
+            for (i, &rid) in rowids.iter().enumerate() {
+                bind_i64(stmt, (i as c_int) + 1, rid);
+            }
+            while step_row(conn, stmt) {
+                let rid = col_i64(stmt, 0);
+                let xmax = col_u32(stmt, 1);
+                map.insert(rid, xmax);
+            }
         }
         map
     })
@@ -523,18 +739,20 @@ pub fn select_xmax_batch(rel_id: u32, rowids: &[i64]) -> FxHashMap<i64, u32> {
 
 pub fn select_one(rel_id: u32, rowid: i64) -> Option<StoredRow> {
     with_conn(rel_id, |conn| {
-        conn.prepare_cached(
-            "SELECT rowid, xmin, cmin, xmax, cmax, tuple \
-             FROM storage WHERE rowid = ?1",
-        )
-        .unwrap_sql()
-        .query_row(params![rowid], |row| {
-            Ok(StoredRow {
-                header: StoredHeader::from_row(row)?,
-                tuple: row.get(5)?,
+        let stmt = conn.prepare_cached(
+            "SELECT rowid, xmin, cmin, xmax, cmax, tuple FROM storage WHERE rowid = ?1",
+        );
+        unsafe {
+            bind_i64(stmt, 1, rowid);
+            if !step_row(conn, stmt) {
+                return None;
+            }
+            let blob = col_blob(stmt, 5);
+            Some(StoredRow {
+                header: header_from(stmt),
+                tuple: blob.to_vec(),
             })
-        })
-        .ok()
+        }
     })
 }
 
@@ -548,23 +766,18 @@ pub fn fetch_one_ref(
     f: impl FnOnce(&StoredHeader, &[u8]) -> bool,
 ) -> bool {
     with_conn(rel_id, |conn| {
-        let mut stmt = conn
-            .prepare_cached(
-                "SELECT rowid, xmin, cmin, xmax, cmax, tuple \
-                 FROM storage WHERE rowid = ?1",
-            )
-            .unwrap_sql();
-        let mut rows = stmt.query(params![rowid]).unwrap_sql();
-        let Some(row) = rows.next().unwrap_sql() else {
-            return false;
-        };
-        let header = StoredHeader::from_row(row).unwrap_sql();
-        let blob = row
-            .get_ref(5)
-            .unwrap_sql()
-            .as_blob()
-            .expect("storage.tuple is declared BLOB NOT NULL");
-        f(&header, blob)
+        let stmt = conn.prepare_cached(
+            "SELECT rowid, xmin, cmin, xmax, cmax, tuple FROM storage WHERE rowid = ?1",
+        );
+        unsafe {
+            bind_i64(stmt, 1, rowid);
+            if !step_row(conn, stmt) {
+                return false;
+            }
+            let header = header_from(stmt);
+            let blob = col_blob(stmt, 5);
+            f(&header, blob)
+        }
     })
 }
 
@@ -573,12 +786,16 @@ pub fn fetch_one_ref(
 pub fn set_xmax(rel_id: u32, rowid: i64, xmax: u32, cmax: u32) -> usize {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached(
+        let stmt = conn.prepare_cached(
             "UPDATE storage SET xmax = ?1, cmax = ?2 WHERE rowid = ?3 AND xmax = 0",
-        )
-        .unwrap_sql()
-        .execute(params![xmax, cmax, rowid])
-        .unwrap_sql()
+        );
+        unsafe {
+            bind_u32(stmt, 1, xmax);
+            bind_u32(stmt, 2, cmax);
+            bind_i64(stmt, 3, rowid);
+            step_done(conn, stmt);
+            sqlite::sqlite3_changes(conn.db) as usize
+        }
     })
 }
 
@@ -593,17 +810,25 @@ pub fn update_row(
 ) -> i64 {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached(
+        let upd = conn.prepare_cached(
             "UPDATE storage SET xmax = ?1, cmax = ?2 WHERE rowid = ?3 AND xmax = 0",
-        )
-        .unwrap_sql()
-        .execute(params![xid, cid, old_rowid])
-        .unwrap_sql();
-        conn.prepare_cached("INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)")
-            .unwrap_sql()
-            .execute(params![xid, cid, new_bytes])
-            .unwrap_sql();
-        conn.last_insert_rowid()
+        );
+        unsafe {
+            bind_u32(upd, 1, xid);
+            bind_u32(upd, 2, cid);
+            bind_i64(upd, 3, old_rowid);
+            step_done(conn, upd);
+        }
+        let ins = conn.prepare_cached(
+            "INSERT INTO storage (xmin, cmin, tuple) VALUES (?1, ?2, ?3)",
+        );
+        unsafe {
+            bind_u32(ins, 1, xid);
+            bind_u32(ins, 2, cid);
+            bind_blob(conn, ins, 3, new_bytes);
+            step_done(conn, ins);
+            sqlite::sqlite3_last_insert_rowid(conn.db)
+        }
     })
 }
 
@@ -612,10 +837,12 @@ pub fn update_row(
 pub fn physical_delete(rel_id: u32, rowid: i64) -> usize {
     with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached("DELETE FROM storage WHERE rowid = ?1")
-            .unwrap_sql()
-            .execute(params![rowid])
-            .unwrap_sql()
+        let stmt = conn.prepare_cached("DELETE FROM storage WHERE rowid = ?1");
+        unsafe {
+            bind_i64(stmt, 1, rowid);
+            step_done(conn, stmt);
+            sqlite::sqlite3_changes(conn.db) as usize
+        }
     })
 }
 
@@ -634,10 +861,13 @@ pub fn vacuum_dead(rel_id: u32, oldest_xmin: u32) -> usize {
     }
     let removed = with_conn(rel_id, |conn| {
         conn.begin_if_needed();
-        conn.prepare_cached("DELETE FROM storage WHERE xmax != 0 AND xmax < ?1")
-            .unwrap_sql()
-            .execute(params![oldest_xmin])
-            .unwrap_sql()
+        let stmt = conn
+            .prepare_cached("DELETE FROM storage WHERE xmax != 0 AND xmax < ?1");
+        unsafe {
+            bind_u32(stmt, 1, oldest_xmin);
+            step_done(conn, stmt);
+            sqlite::sqlite3_changes(conn.db) as usize
+        }
     });
     meta_set(rel_id, META_LAST_VACUUM_XMIN, &oldest_xmin.to_le_bytes());
     removed
@@ -651,10 +881,14 @@ pub fn estimate_size(rel_id: u32) -> (u64, i64) {
         .map(|m| m.len())
         .unwrap_or(0);
     let tuples = with_conn(rel_id, |conn| {
-        conn.prepare_cached("SELECT count(*) FROM storage")
-            .unwrap_sql()
-            .query_row([], |r| r.get::<_, i64>(0))
-            .unwrap_or(0)
+        let stmt = conn.prepare_cached("SELECT count(*) FROM storage");
+        unsafe {
+            if step_row(conn, stmt) {
+                col_i64(stmt, 0)
+            } else {
+                0
+            }
+        }
     });
     (bytes, tuples)
 }
